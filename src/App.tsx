@@ -813,52 +813,59 @@ export default function App() {
   };
 
   const checkWithAI = async () => {
-    const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
     setIsCheckingAI(true);
     setShowAiModal(true);
     setAiCorrections(null);
 
     try {
-
-      const ai = new GoogleGenAI({ apiKey });
-      
       const payload = reportData.filter(item => item.text.trim() !== "");
-      const prompt = `
-      당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
-      아래 제공된 계층형 데이터(id, text, level 로 구성)의 텍스트(text)를 검토하세요.
-      1. 오타가 있거나
-      2. 문맥상 어색하거나
-      3. 주간보고 양식(격식있는 개조식 문체 권장, 예: "~함", "~예정")에 맞지 않는 항목들을 찾아주세요.
-      4. 교정할 것이 없으면 빈 배열([])을 반환하세요.
-      
-      오직 교정이 필요한 항목만 응답 배열에 포함시켜야 합니다.
+      const prompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
+아래 제공된 데이터의 텍스트(text)를 검토하세요.
+1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목을 찾으세요.
+반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
+[{ "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "reason": "이유" }]`;
 
-      데이터:
-      ${JSON.stringify(payload, null, 2)}
-      `;
+      let text = "";
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.INTEGER, description: "교정할 항목의 id" },
-                original: { type: Type.STRING, description: "원본 텍스트" },
-                corrected: { type: Type.STRING, description: "아름답게 교정된 텍스트" },
-                reason: { type: Type.STRING, description: "교정한 이유 설명" }
-              },
-              required: ["id", "original", "corrected", "reason"]
+      // 1. 크롬 내장 Gemini Nano 시도
+      try {
+        if ('ai' in window && (window as any).ai?.languageModel) {
+          const session = await (window as any).ai.languageModel.create({
+             systemPrompt: "You return only valid JSON arrays. Do not use markdown blocks."
+          });
+          const nanoPrompt = `${prompt}\n\n데이터:\n${JSON.stringify(payload, null, 2)}`;
+          text = await session.prompt(nanoPrompt);
+        }
+      } catch (e) {
+        console.warn("Gemini Nano failed or not available", e);
+      }
+
+      // 2. Nano 실패 시 API로 폴백
+      if (!text) {
+        const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.INTEGER, description: "id" },
+                  original: { type: Type.STRING, description: "original" },
+                  corrected: { type: Type.STRING, description: "corrected" },
+                  reason: { type: Type.STRING, description: "reason" }
+                },
+                required: ["id", "original", "corrected", "reason"]
+              }
             }
           }
-        }
-      });
-
-      let text = response.text || "[]";
+        });
+        text = response.text || "[]";
+      }
       // strip markdown wrapper if exists
       text = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
       const corrections = JSON.parse(text);
@@ -1158,7 +1165,15 @@ export default function App() {
 
       return (
         <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
-          <div className="whitespace-pre-line">{prefix}{item.text || <span className="text-slate-300">(내용 없음)</span>}</div>
+          <div className="flex items-start">
+            <span className="shrink-0 whitespace-pre mt-[2px]">{prefix}</span>
+            <TextareaAutosize
+              value={item.text}
+              onChange={(e) => updateText(item.id, e.target.value)}
+              className="w-full bg-transparent border-none outline-none resize-none p-0 m-0 focus:ring-0 focus:bg-white/50 rounded transition-colors placeholder-slate-300"
+              placeholder="(내용 없음)"
+            />
+          </div>
           {item.image && (
             <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
@@ -1991,12 +2006,20 @@ export default function App() {
             <div className="flex gap-2">
               <button 
                 onClick={() => handleSave(true)}
-                disabled={isSaving}
+                disabled={isSaving || status === 'submitted'}
                 className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors disabled:opacity-70 ${status === 'submitted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
               >
                 <Check className="w-4 h-4" />
-                {status === 'submitted' ? '제출됨' : '제출 확정'}
+                {status === 'submitted' ? '제출 완료' : '제출 확정'}
               </button>
+              {status === 'submitted' && (
+                <button 
+                  onClick={() => { setStatus('draft'); handleSave(false); }}
+                  className="flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
+                >
+                  <X className="w-4 h-4" /> 제출 취소
+                </button>
+              )}
             </div>
             <button 
               onClick={checkWithAI}
