@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -143,6 +143,82 @@ export default function App() {
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
+
+  const [activeTab, setActiveTab] = useState<'report' | 'notice'>('report');
+  const [notices, setNotices] = useState<any[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [activeNotice, setActiveNotice] = useState<any | null>(null);
+  const [isUploadingNotice, setIsUploadingNotice] = useState(false);
+
+  const loadNotices = async () => {
+    try {
+      const { data, error } = await supabase.from('reports').select('data').eq('id', 'SYSTEM_NOTICES').single();
+      if (!error && data?.data) {
+        setNotices(data.data);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'notice') loadNotices();
+  }, [activeTab]);
+
+  const handleAdminLogin = () => {
+    const pwd = prompt('관리자 비밀번호를 입력하세요:');
+    if (pwd === 'skmt0909!') {
+      setIsAdmin(true);
+      alert('관리자로 로그인되었습니다.');
+    } else {
+      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
+    }
+  };
+
+  const handleNoticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      alert('PDF 파일만 업로드 가능합니다.');
+      return;
+    }
+    const title = prompt('공지사항 제목을 입력하세요:');
+    if (!title) return;
+
+    setIsUploadingNotice(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `notice_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
+      const pdfUrl = publicUrlData.publicUrl;
+
+      const newNotice = { id: Date.now().toString(), title, pdfUrl, created_at: new Date().toISOString() };
+      const newNotices = [newNotice, ...notices];
+
+      await supabase.from('reports').upsert({ id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
+      setNotices(newNotices);
+      alert('공지사항이 등록되었습니다.');
+    } catch (err) {
+      console.error(err);
+      alert('업로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploadingNotice(false);
+    }
+  };
+
+  const deleteNotice = async (id: string) => {
+    if (!window.confirm('이 공지사항을 삭제하시겠습니까?')) return;
+    try {
+      const newNotices = notices.filter(n => n.id !== id);
+      await supabase.from('reports').upsert({ id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
+      setNotices(newNotices);
+      if (activeNotice?.id === id) setActiveNotice(null);
+    } catch (e) {
+      console.error(e);
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
 
   const updateParishStats = () => {
     const stats: Record<string, 'empty' | 'draft' | 'submitted'> = {};
@@ -1170,6 +1246,13 @@ export default function App() {
             <TextareaAutosize
               value={item.text}
               onChange={(e) => updateText(item.id, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const idx = reportData.findIndex(r => r.id === item.id);
+                  if (idx !== -1) addNewItem(idx, item.level);
+                }
+              }}
               className="w-full bg-transparent border-none outline-none resize-none p-0 m-0 focus:ring-0 focus:bg-white/50 rounded transition-colors placeholder-slate-300"
               placeholder="(내용 없음)"
             />
@@ -1336,7 +1419,7 @@ export default function App() {
     }
 
     const password = prompt("전체 초기화 비밀번호를 입력하세요:");
-    if (password !== "skmt0909!!") {
+    if (password !== "skmt0909!") {
       if (password !== null) alert("비밀번호가 일치하지 않습니다.");
       return;
     }
@@ -1371,8 +1454,62 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6 font-sans text-slate-800">
-      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6">
+    <div className="min-h-screen bg-slate-100 p-4 sm:p-6 font-sans text-slate-800 flex flex-col">
+      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-3">
+         <button onClick={() => setActiveTab('report')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 주간업무보고 작성</button>
+         <button onClick={() => setActiveTab('notice')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+      </div>
+
+      {activeTab === 'notice' && (
+        <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto flex-1 flex flex-col h-[calc(100vh-8rem)]">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row h-full overflow-hidden">
+            <div className="w-full md:w-1/3 lg:w-1/4 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col bg-slate-50 shrink-0">
+              <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Bell className="w-5 h-5 text-blue-500"/> 공지사항</h2>
+                {!isAdmin ? (
+                  <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 px-2 py-1 rounded">관리자 로그인</button>
+                ) : (
+                  <label className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2.5 py-1.5 rounded cursor-pointer font-bold flex items-center gap-1 transition-colors">
+                    {isUploadingNotice ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {isUploadingNotice ? '업로드중...' : '공지 올리기 (PDF)'}
+                    <input type="file" accept="application/pdf" className="hidden" onChange={handleNoticeUpload} disabled={isUploadingNotice} />
+                  </label>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {notices.length === 0 ? (
+                  <div className="text-center text-slate-400 py-10 text-sm">등록된 공지사항이 없습니다.</div>
+                ) : (
+                  notices.map(notice => (
+                    <div key={notice.id} onClick={() => setActiveNotice(notice)} className={`p-3 rounded-lg cursor-pointer transition-colors border ${activeNotice?.id === notice.id ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-transparent hover:border-slate-200'}`}>
+                      <div className="flex justify-between items-start">
+                        <div className="font-medium text-slate-800 text-sm leading-snug">{notice.title}</div>
+                        {isAdmin && (
+                          <button onClick={(e) => { e.stopPropagation(); deleteNotice(notice.id); }} className="text-red-400 hover:text-red-600 p-1 shrink-0"><X className="w-3.5 h-3.5"/></button>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-2">{new Date(notice.created_at).toLocaleDateString()}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="w-full md:w-2/3 lg:w-3/4 bg-slate-200 flex-1 relative flex flex-col h-full">
+              {activeNotice ? (
+                <iframe src={activeNotice.pdfUrl} className="w-full h-full border-0 flex-1" title="PDF Viewer" />
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                  <FileText className="w-16 h-16 mb-4 text-slate-300" />
+                  <p>좌측에서 공지사항을 선택하시면 PDF가 표시됩니다.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'report' && (
+      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0 overflow-hidden">
         
         {/* Editor Panel */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-3rem)]">
@@ -2049,6 +2186,7 @@ export default function App() {
         </div>
 
       </div>
+      )}
 
       {/* AI Review & Export Modal */}
       {showAiModal && (
