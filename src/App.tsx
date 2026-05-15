@@ -921,14 +921,28 @@ export default function App() {
     }
   };
 
-  const handleSave = (isSubmit: boolean = false) => {
+  const handleSave = async (isSubmit: boolean = false) => {
     setIsSaving(true);
     const key = `report_${parish}_${church}`;
     const timestamp = new Date().toLocaleString('ko-KR');
     const newStatus = isSubmit ? 'submitted' : 'draft';
-    localStorage.setItem(key, JSON.stringify({ data: reportData, lastSaved: timestamp, status: newStatus }));
+    const saveData = { data: reportData, lastSaved: timestamp, status: newStatus };
+    
+    localStorage.setItem(key, JSON.stringify(saveData));
     setLastSaved(timestamp);
     setStatus(newStatus);
+    
+    if (supabase) {
+      try {
+        await supabase.from('reports').upsert({
+          id: `${parish}_${church}`,
+          ...saveData,
+          updated_at: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error("Manual save failed", e);
+      }
+    }
     setTimeout(() => setIsSaving(false), 600);
   };
 
