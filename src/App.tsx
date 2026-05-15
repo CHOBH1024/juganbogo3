@@ -1104,32 +1104,49 @@ export default function App() {
         }
         
         if (!text) {
-          const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-          const ai = new GoogleGenAI({ apiKey });
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    church: { type: Type.STRING, description: "church" },
-                    id: { type: Type.INTEGER, description: "id" },
-                    original: { type: Type.STRING, description: "original" },
-                    corrected: { type: Type.STRING, description: "corrected" },
-                    reason: { type: Type.STRING, description: "reason" }
-                  },
-                  required: ["church", "id", "original", "corrected", "reason"]
+          let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
+          try {
+            const ai = new GoogleGenAI({ apiKey: googleApiKey });
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.0-flash',
+              contents: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`,
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      church: { type: Type.STRING, description: "church" },
+                      id: { type: Type.INTEGER, description: "id" },
+                      original: { type: Type.STRING, description: "original" },
+                      corrected: { type: Type.STRING, description: "corrected" },
+                      reason: { type: Type.STRING, description: "reason" }
+                    },
+                    required: ["church", "id", "original", "corrected", "reason"]
+                  }
                 }
               }
+            });
+            text = response.text || "[]";
+          } catch (e: any) {
+            if (e.message && e.message.includes('429')) {
+              const newKey = prompt("기본 제공된 구글 AI 키의 일일/분당 사용량이 초과되었습니다 (오류 429).\n본인의 구글 AI Studio API 키를 입력해주시면 계속 사용 가능합니다.\n키가 없다면 나중에 다시 시도해주세요:");
+              if (newKey) {
+                localStorage.setItem('GEMINI_KEY', newKey);
+                alert("키가 저장되었습니다. 다시 AI 검토 버튼을 눌러주세요.");
+                setShowAiModal(false);
+                setIsCheckingAI(false);
+                return;
+              }
+            } else {
+              throw e;
             }
-          });
-          text = response.text || "[]";
+          }
         }
       }
+      
+      if (!text) throw new Error("AI 응답을 받지 못했습니다.");
       
       let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
       const match = cleanText.match(/\[\s*\{[\s\S]*\}\s*\]/);
