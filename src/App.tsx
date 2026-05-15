@@ -26,30 +26,37 @@ interface ReportItem {
 }
 
 const PARISH_CHURCH_MAP: Record<string, string[]> = {
-  "천원특별": ["천원궁 천원", "가평", "청평", "북면가정", "조종가정", "상면가정"],
-  "서울북부": ["천원궁 천승", "천승(1구역)", "천승(2구역)", "천승(3구역)", "광진", "노원", "동대문", "성북", "안암학사", "신촌학사", "한양학사", "은평", "서대문", "중구", "종로", "중랑", "강북", "장안", "도봉", "청파", "광화문학사", "HJ글로벌"],
-  "서울남부": ["강남", "영등포", "강동", "양천", "강서", "관악", "구로", "금천", "명일", "송파", "흑석동작"],
-  "경기북부": ["구리", "남양주", "일산", "금촌", "덕양", "동두천", "양주", "연천", "의정부", "파주", "포천", "화도", "양평"],
-  "인천경기서부": ["인천", "강화", "계양", "김포", "남부천", "부천", "부평", "서구", "주안", "안산", "광명", "군포"],
-  "경기남부": ["수원", "수원학사", "이천", "일신", "평택", "과천", "광주(경기남부)", "기흥", "성남", "안성", "안양", "야목화성", "여주", "오산", "용인", "하남"],
-  "강원": ["춘천", "춘천전도소", "원주", "양구", "강릉", "고성(강원)", "동해", "삼척", "속초", "양양", "영월", "인제", "정선", "철원", "태백", "평창", "홍천", "화천", "횡성"],
-  "대전충남": ["천안", "선문대학", "선문학사", "공주", "당진", "병천", "보령", "부여", "서산", "서천", "아산", "예산", "청양", "태안", "홍성", "대전", "금산", "논산", "대덕", "대전중앙", "세종", "유성"],
-  "충북": ["청주", "충주", "괴산", "금왕", "남일", "단양", "미원", "보은", "영동", "옥천", "음성", "제천", "증평", "진천", "청원", "광혜원전도소"],
-  "전북": ["전주", "남원", "익산", "고창", "군산", "김제", "무주", "부안", "순창", "완주", "임실", "장수", "정읍", "진안"],
-  "광주전남제주": ["광주", "광주청년센터", "광주학사", "나주", "목포", "화순", "강진", "곡성", "광산", "구례", "남광주", "담양", "무안", "보성", "영광", "영암", "완도", "장성", "장흥", "진도", "함평", "해남", "해양여수", "광양", "거문도", "고흥", "서순천", "순천", "제주", "제주학사", "서귀포"],
-  "대구경북": ["대구", "경주", "동대구", "경산", "고령", "구미", "군위", "김천", "달성", "문경", "봉화", "상주", "선산", "성주", "수성", "안강", "안동", "영덕", "영양", "영주", "영천", "예천", "울릉", "울진", "의성", "청도", "청송", "칠곡", "포항"],
-  "경남": ["창원", "동창원", "마산", "거제", "거창", "고성", "김해", "남해", "밀양", "사천", "산청", "양산", "의령", "진주", "진주학사", "진해", "창녕", "통영", "하동", "함안", "함양", "합천"],
-  "부산울산": ["부산", "부산청년센터", "부산학사", "남부산", "동부산", "북부산", "서부산", "울산", "동울산", "울주"]
+  "협회": ["기획국", "미래인재국", "가정행복국", "총무국", "문화홍보국", "사회공헌국", "대외협력국"],
+  "천원특별": ["교구본부", "천원궁 천원", "가평", "청평", "북면가정", "조종가정", "상면가정"],
+  "서울북부": ["교구본부", "천원궁 천승", "천승(1구역)", "천승(2구역)", "천승(3구역)", "광진", "노원", "동대문", "성북", "안암학사", "신촌학사", "한양학사", "은평", "서대문", "중구", "종로", "중랑", "강북", "장안", "도봉", "청파", "광화문학사", "HJ글로벌"],
+  "서울남부": ["교구본부", "강남", "영등포", "강동", "양천", "강서", "관악", "구로", "금천", "명일", "송파", "흑석동작"],
+  "경기북부": ["교구본부", "구리", "남양주", "일산", "금촌", "덕양", "동두천", "양주", "연천", "의정부", "파주", "포천", "화도", "양평"],
+  "인천경기서부": ["교구본부", "인천", "강화", "계양", "김포", "남부천", "부천", "부평", "서구", "주안", "안산", "광명", "군포"],
+  "경기남부": ["교구본부", "수원", "수원학사", "이천", "일신", "평택", "과천", "광주(경기남부)", "기흥", "성남", "안성", "안양", "야목화성", "여주", "오산", "용인", "하남"],
+  "강원": ["교구본부", "춘천", "춘천전도소", "원주", "양구", "강릉", "고성(강원)", "동해", "삼척", "속초", "양양", "영월", "인제", "정선", "철원", "태백", "평창", "홍천", "화천", "횡성"],
+  "대전충남": ["교구본부", "천안", "선문대학", "선문학사", "공주", "당진", "병천", "보령", "부여", "서산", "서천", "아산", "예산", "청양", "태안", "홍성", "대전", "금산", "논산", "대덕", "대전중앙", "세종", "유성"],
+  "충북": ["교구본부", "청주", "충주", "괴산", "금왕", "남일", "단양", "미원", "보은", "영동", "옥천", "음성", "제천", "증평", "진천", "청원", "광혜원전도소"],
+  "전북": ["교구본부", "전주", "남원", "익산", "고창", "군산", "김제", "무주", "부안", "순창", "완주", "임실", "장수", "정읍", "진안"],
+  "광주전남제주": ["교구본부", "광주", "광주청년센터", "광주학사", "나주", "목포", "화순", "강진", "곡성", "광산", "구례", "남광주", "담양", "무안", "보성", "영광", "영암", "완도", "장성", "장흥", "진도", "함평", "해남", "해양여수", "광양", "거문도", "고흥", "서순천", "순천", "제주", "제주학사", "서귀포"],
+  "대구경북": ["교구본부", "대구", "경주", "동대구", "경산", "고령", "구미", "군위", "김천", "달성", "문경", "봉화", "상주", "선산", "성주", "수성", "안강", "안동", "영덕", "영양", "영주", "영천", "예천", "울릉", "울진", "의성", "청도", "청송", "칠곡", "포항"],
+  "경남": ["교구본부", "창원", "동창원", "마산", "거제", "거창", "고성", "김해", "남해", "밀양", "사천", "산청", "양산", "의령", "진주", "진주학사", "진해", "창녕", "통영", "하동", "함안", "함양", "합천"],
+  "부산울산": ["교구본부", "부산", "부산청년센터", "부산학사", "남부산", "동부산", "북부산", "서부산", "울산", "동울산", "울주"]
 };
 
 // Helper functions for display
-const getDisplayParish = (parishName: string) => parishName.endsWith('교구') ? parishName : `${parishName}교구`;
-const getDisplayChurch = (churchName: string) => churchName.endsWith('교회') || churchName.endsWith('학사') || churchName.endsWith('글로벌') || churchName.endsWith('센터') || churchName.endsWith('대학') || churchName.endsWith('전도소') ? churchName : `${churchName}교회`;
+const getDisplayParish = (parishName: string) => {
+  if (parishName === '협회') return '협회본부';
+  return parishName.endsWith('교구') ? parishName : `${parishName}교구`;
+};
+const getDisplayChurch = (churchName: string) => {
+  if (churchName === '교구본부' || churchName.endsWith('국')) return churchName;
+  return churchName.endsWith('교회') || churchName.endsWith('학사') || churchName.endsWith('글로벌') || churchName.endsWith('센터') || churchName.endsWith('대학') || churchName.endsWith('전도소') ? churchName : `${churchName}교회`;
+};
 
 const DEFAULT_REPORT: ReportItem[] = [
-  { id: 1, text: "전주 결과보고", level: 0, isFixed: true },
+  { id: 1, text: "전주 결과보고", level: 0 },
   { id: 2, text: "", level: 1 },
-  { id: 3, text: "금주 계획 및 보고", level: 0, isFixed: true },
+  { id: 3, text: "금주 계획 및 보고", level: 0 },
   { id: 4, text: "", level: 1 }
 ];
 
@@ -144,7 +151,19 @@ export default function App() {
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
 
-  const [activeTab, setActiveTab] = useState<'report' | 'notice'>('report');
+  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice'>('report');
+
+  const handleAssociationTab = () => {
+    if (activeTab === 'association') return;
+    const pwd = prompt('협회 보고용 비밀번호를 입력하세요:');
+    if (pwd === '20252027') {
+      setActiveTab('association');
+      setParish('협회');
+      setChurch(PARISH_CHURCH_MAP['협회'][0]);
+    } else {
+      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
+    }
+  };
   const [notices, setNotices] = useState<any[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [activeNotice, setActiveNotice] = useState<any | null>(null);
@@ -918,29 +937,63 @@ export default function App() {
 
       // 2. Nano 실패 시 API로 폴백
       if (!text) {
-        const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.INTEGER, description: "id" },
-                  original: { type: Type.STRING, description: "original" },
-                  corrected: { type: Type.STRING, description: "corrected" },
-                  reason: { type: Type.STRING, description: "reason" }
-                },
-                required: ["id", "original", "corrected", "reason"]
+        let openRouterKey = localStorage.getItem('OPENROUTER_KEY');
+        if (!openRouterKey) {
+          const inputKey = prompt("크롬 내장 AI(Nano)를 사용할 수 없습니다.\n오픈라우터(OpenRouter) API 키를 입력하시면 100% 무료 모델로 우회합니다.\n(취소하시면 기존 설정된 Gemini 키로 시도합니다.)");
+          if (inputKey) {
+            localStorage.setItem('OPENROUTER_KEY', inputKey);
+            openRouterKey = inputKey;
+          }
+        }
+
+        if (openRouterKey) {
+          try {
+            const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${openRouterKey}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                model: "google/gemini-2.0-flash-lite-preview-02-05:free",
+                response_format: { type: "json_object" },
+                messages: [{ role: "user", content: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}` }]
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              text = json.choices[0].message.content;
+            }
+          } catch(e) {
+            console.error("OpenRouter fallback failed", e);
+          }
+        }
+        
+        if (!text) {
+          const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
+          const ai = new GoogleGenAI({ apiKey });
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}`,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.INTEGER, description: "id" },
+                    original: { type: Type.STRING, description: "original" },
+                    corrected: { type: Type.STRING, description: "corrected" },
+                    reason: { type: Type.STRING, description: "reason" }
+                  },
+                  required: ["id", "original", "corrected", "reason"]
+                }
               }
             }
-          }
-        });
-        text = response.text || "[]";
+          });
+          text = response.text || "[]";
+        }
       }
       // strip markdown wrapper if exists
       text = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
@@ -1456,7 +1509,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 p-4 sm:p-6 font-sans text-slate-800 flex flex-col">
       <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-3">
-         <button onClick={() => setActiveTab('report')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 주간업무보고 작성</button>
+         <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
+         <button onClick={handleAssociationTab} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
          <button onClick={() => setActiveTab('notice')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
       </div>
 
@@ -1508,7 +1562,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'report' && (
+      {(activeTab === 'report' || activeTab === 'association') && (
       <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0 overflow-hidden">
         
         {/* Editor Panel */}
@@ -1517,7 +1571,7 @@ export default function App() {
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                보고서 작성
+                {activeTab === 'association' ? '협회 보고서 작성' : '교구 보고서 작성'}
                 {lastSaved && (
                   <span className="text-xs font-normal text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full">
                     <Clock className="w-3 h-3" /> 최근 저장: {lastSaved}
@@ -1557,28 +1611,30 @@ export default function App() {
             
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
+                {activeTab !== 'association' && (
+                  <div className="flex-1">
+                    <label htmlFor="parishSelect" className="block text-xs font-bold text-slate-500 mb-1">교구</label>
+                    <select 
+                      id="parishSelect" 
+                      value={parish}
+                      onChange={handleParishChange}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                    >
+                      {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
+                        <option key={p} value={p}>{getDisplayParish(p)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex-1">
-                  <label htmlFor="parishSelect" className="block text-xs font-bold text-slate-500 mb-1">교구</label>
-                  <select 
-                    id="parishSelect" 
-                    value={parish}
-                    onChange={handleParishChange}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                  >
-                    {Object.keys(PARISH_CHURCH_MAP).map(p => (
-                      <option key={p} value={p}>{getDisplayParish(p)}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">교회</label>
+                  <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">{activeTab === 'association' ? '협회 부서' : '교회'}</label>
                   <select 
                     id="churchSelect" 
                     value={church}
                     onChange={(e) => handleChurchChange(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
                   >
-                    {PARISH_CHURCH_MAP[parish].map(c => (
+                    {(PARISH_CHURCH_MAP[parish] || []).map(c => (
                       <option key={c} value={c}>{getDisplayChurch(c)}</option>
                     ))}
                   </select>
@@ -1655,19 +1711,15 @@ export default function App() {
                     <div key={item.id} className="flex flex-col gap-2 py-3 mt-4 first:mt-0 group">
                       <div className="font-bold text-lg text-blue-800 border-b-2 border-blue-100 w-full pb-1 flex items-center gap-2">
                         <span className="shrink-0">{toRoman(editorL0Counter)}.</span>
-                        {item.isFixed ? (
-                          <span className="flex-1">{item.text}</span>
-                        ) : (
-                          <TextareaAutosize
-                            id={`input-${item.id}`}
-                            value={item.text}
-                            onChange={(e) => updateText(item.id, e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, index)}
-                            onPaste={(e) => handlePaste(e, item.id)}
-                            className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
-                            placeholder="대항목 제목 입력 (붙여넣기로 표 생성 가능)"
-                          />
-                        )}
+                        <TextareaAutosize
+                          id={`input-${item.id}`}
+                          value={item.text}
+                          onChange={(e) => updateText(item.id, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, item.id, index)}
+                          onPaste={(e) => handlePaste(e, item.id)}
+                          className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
+                          placeholder="대항목 제목 입력 (붙여넣기로 표 생성 가능)"
+                        />
                         <div className="opacity-0 group-hover:opacity-100 flex items-center transition-opacity shrink-0 gap-1">
                           <button onClick={() => addEmptyTable(item.id)} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="표 삽입">
                             <TableIcon className="w-4 h-4" />
@@ -1679,11 +1731,9 @@ export default function App() {
                           <button onClick={() => addNewItem(index, 1)} className="p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-600 font-medium text-xs rounded flex items-center gap-1" title="세부 항목 추가">
                               <Plus className="w-3.5 h-3.5" /> 세부 항목
                           </button>
-                          {!item.isFixed && (
-                            <button onClick={() => removeItem(item.id)} className="p-1 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-md shrink-0 transition-colors" title="삭제">
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button onClick={() => removeItem(item.id)} className="p-1 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-md shrink-0 transition-colors" title="삭제">
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                       
