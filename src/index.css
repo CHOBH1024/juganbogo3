@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Georgia", ui-serif, Cambria, "Times New Roman", Times, serif;
+  --font-sans: "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  overflow: hidden;
+}
