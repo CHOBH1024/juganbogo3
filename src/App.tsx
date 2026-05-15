@@ -114,17 +114,6 @@ function buildTree(flatData: ReportItem[]) {
 }
 
 export default function App() {
-  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [tempApiKey, setTempApiKey] = useState('');
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-
-  const saveApiKey = () => {
-    localStorage.setItem('gemini_api_key', tempApiKey.trim());
-    setGeminiApiKey(tempApiKey.trim());
-    setApiKeySaved(true);
-    setTimeout(() => { setApiKeySaved(false); setShowApiKeyModal(false); }, 800);
-  };
 
   const [parish, setParish] = useState("천원특별");
   const [church, setChurch] = useState(PARISH_CHURCH_MAP["천원특별"][0]);
@@ -824,14 +813,7 @@ export default function App() {
   };
 
   const checkWithAI = async () => {
-    // Priority: Vercel env var → localStorage → user input
-    const apiKey = (process.env.GEMINI_API_KEY as string) || geminiApiKey || localStorage.getItem('gemini_api_key') || '';
-    if (!apiKey) {
-      setTempApiKey('');
-      setShowApiKeyModal(true);
-      alert('AI 기능을 사용하려면 먼저 Gemini API 키를 설정해주세요.\n우상단 키 버튼을 눌러 입력하세요.');
-      return;
-    }
+    const apiKey = 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
     setIsCheckingAI(true);
     setShowAiModal(true);
     setAiCorrections(null);
@@ -1391,25 +1373,9 @@ export default function App() {
                 )}
               </h2>
               <div className="flex gap-2">
-                {!(process.env.GEMINI_API_KEY as string) && (
-                <button
-                  onClick={() => { setTempApiKey(geminiApiKey); setShowApiKeyModal(true); }}
-                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md transition-colors shadow-sm border ${
-                    geminiApiKey
-                      ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100 text-emerald-700'
-                      : 'bg-amber-50 border-amber-300 hover:bg-amber-100 text-amber-700 font-bold'
-                  }`}
-                  title="Gemini API 키 설정"
-                >
-                  <Key className="w-4 h-4" />
-                  {geminiApiKey ? 'API 키 설정됨' : 'API 키 필요'}
-                </button>
-                )}
-                {(process.env.GEMINI_API_KEY as string) && (
-                  <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
-                    <Check className="w-4 h-4" /> AI 준비됨
-                  </span>
-                )}
+                <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
+                  <Check className="w-4 h-4" /> AI 준비됨
+                </span>
                 <button 
                   onClick={() => setShowGuideModal(true)}
                   className="flex items-center gap-1.5 text-sm bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
@@ -2326,64 +2292,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* API Key Modal */}
-      {showApiKeyModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 rounded-t-2xl text-white flex items-center gap-3">
-              <Key className="w-6 h-6 text-indigo-200" />
-              <div>
-                <h3 className="text-lg font-bold">Gemini API 키 설정</h3>
-                <p className="text-indigo-200 text-xs mt-0.5">AI 검토 기능에 필요합니다. 키는 이 기기에만 저장됩니다.</p>
-              </div>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Gemini API Key</label>
-                <input
-                  type="password"
-                  value={tempApiKey}
-                  onChange={e => setTempApiKey(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveApiKey()}
-                  placeholder="AIza..."
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                  autoFocus
-                />
-              </div>
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 space-y-1">
-                <p className="font-bold">🔑 API 키 발급 방법</p>
-                <p>1. <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline font-medium">Google AI Studio</a> 접속</p>
-                <p>2. 'Get API key' → 'Create API key' 클릭</p>
-                <p>3. 생성된 키를 위 입력란에 붙여넣기</p>
-                <p className="text-blue-600 mt-1">⚠️ 키는 서버로 전송되지 않고, 이 브라우저에만 저장됩니다.</p>
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button
-                  onClick={() => setShowApiKeyModal(false)}
-                  className="flex-1 py-2.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 font-medium transition-colors"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={saveApiKey}
-                  disabled={!tempApiKey.trim()}
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
-                >
-                  {apiKeySaved ? <><Check className="w-4 h-4" /> 저장됨!</> : '저장하기'}
-                </button>
-              </div>
-              {geminiApiKey && (
-                <button
-                  onClick={() => { localStorage.removeItem('gemini_api_key'); setGeminiApiKey(''); setTempApiKey(''); setShowApiKeyModal(false); }}
-                  className="w-full text-xs text-red-500 hover:text-red-700 py-1 transition-colors"
-                >
-                  키 삭제
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {tableContextMenu && (
         <div 
