@@ -7,6 +7,9 @@ import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-im
 import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { parseHtmlTable } from './lib/tableParser';
+import { db, storage } from './lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
 interface ReportItem {
   id: number;
@@ -207,35 +210,72 @@ export default function App() {
 
   // Load data when parish or church changes
   useEffect(() => {
-    const key = `report_${parish}_${church}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setReportData(parsed.data && parsed.data.length > 0 ? parsed.data : DEFAULT_REPORT);
-        setLastSaved(parsed.lastSaved || null);
-        setStatus(parsed.status || 'draft');
-        const maxId = Math.max(4, ...(parsed.data || DEFAULT_REPORT).map((d: any) => d.id));
-        setNextId(maxId + 1);
-      } catch (e) {
-        setReportData(DEFAULT_REPORT);
-        setLastSaved(null);
-        setStatus('draft');
+    const loadData = async () => {
+      const key = `report_${parish}_${church}`;
+      const savedLocal = localStorage.getItem(key);
+      let localParsed: any = null;
+      if (savedLocal) {
+        try { localParsed = JSON.parse(savedLocal); } catch(e){}
       }
-    } else {
-      setReportData(DEFAULT_REPORT);
-      setLastSaved(null);
-      setStatus('draft');
-    }
-    setAiCorrections(null);
+      
+      if (localParsed) {
+         setReportData(localParsed.data && localParsed.data.length > 0 ? localParsed.data : DEFAULT_REPORT);
+         setLastSaved(localParsed.lastSaved || null);
+         setStatus(localParsed.status || 'draft');
+         const maxId = Math.max(4, ...(localParsed.data || DEFAULT_REPORT).map((d: any) => d.id));
+         setNextId(maxId + 1);
+      } else {
+         setReportData(DEFAULT_REPORT);
+         setLastSaved(null);
+         setStatus('draft');
+      }
+      
+      // Fetch from Firebase to get latest if exists
+      if (db) {
+         try {
+            const docSnap = await getDoc(doc(db, "reports", `${parish}_${church}`));
+            if (docSnap.exists()) {
+               const fireData = docSnap.data();
+               setReportData(fireData.data && fireData.data.length > 0 ? fireData.data : DEFAULT_REPORT);
+               setLastSaved(fireData.lastSaved || null);
+               setStatus(fireData.status || 'draft');
+               const maxId = Math.max(4, ...(fireData.data || DEFAULT_REPORT).map((d: any) => d.id));
+               setNextId(maxId + 1);
+               localStorage.setItem(key, JSON.stringify(fireData));
+            }
+         } catch(e) {
+            console.error("Firebase load failed", e);
+         }
+      }
+      setAiCorrections(null);
+    };
+    loadData();
   }, [parish, church]);
 
   // Silent auto-save on data change
   useEffect(() => {
-    if (reportData === DEFAULT_REPORT && !lastSaved) return; // Ignore initial empty state if never saved
+    if (reportData === DEFAULT_REPORT && !lastSaved) return; 
     const key = `report_${parish}_${church}`;
     const timestamp = lastSaved || new Date().toLocaleString('ko-KR');
-    localStorage.setItem(key, JSON.stringify({ data: reportData, lastSaved: timestamp, status }));
+    
+    // Save locally first for fast recovery
+    const saveData = { data: reportData, lastSaved: timestamp, status };
+    localStorage.setItem(key, JSON.stringify(saveData));
+
+    // Firebase save with debounce
+    const timeoutId = setTimeout(async () => {
+      if (!db) return;
+      try {
+        await setDoc(doc(db, "reports", `${parish}_${church}`), {
+          ...saveData,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error("Firebase save failed:", e);
+      }
+    }, 2000); // 2 seconds debounce
+
+    return () => clearTimeout(timeoutId);
   }, [reportData, parish, church, status, lastSaved]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
@@ -323,15 +363,30 @@ export default function App() {
     }
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    setCropModalOpen(false);
 
+    // Optimistic update
     setReportData(data => data.map(item => item.id === cropItemId ? { 
       ...item, 
       image: dataUrl,
       imageWidth: finalWidth,
       imageHeight: finalHeight
     } : item));
-    
-    setCropModalOpen(false);
+
+    // Upload to Firebase if available
+    if (storage) {
+      const timestamp = new Date().getTime();
+      const imageRef = ref(storage, `images/${parish}/${church}/${timestamp}.jpg`);
+      uploadString(imageRef, dataUrl, 'data_url').then(async () => {
+        const downloadUrl = await getDownloadURL(imageRef);
+        setReportData(data => data.map(item => item.id === cropItemId ? { 
+          ...item, 
+          image: downloadUrl
+        } : item));
+      }).catch(e => {
+        console.error("Image upload failed", e);
+      });
+    }
   };
 
   const removeImage = (id: number) => {
@@ -898,7 +953,8 @@ export default function App() {
       );
       churchIndex++;
 
-      const paragraphs = dataToUse.flatMap(item => {
+      const paragraphs: (Paragraph | Table)[] = [];
+      for (const item of dataToUse) {
         let prefix = "";
         if (item.level === 0) {
             counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
@@ -942,8 +998,14 @@ export default function App() {
 
         if (item.image && item.imageWidth && item.imageHeight) {
           try {
-            const base64Data = item.image.split(",")[1];
-            const imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0));
+            let imageBuffer: ArrayBuffer;
+            if (item.image.startsWith("http")) {
+              const res = await fetch(item.image);
+              imageBuffer = await res.arrayBuffer();
+            } else {
+              const base64Data = item.image.split(",")[1];
+              imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0));
+            }
             
             const targetWidth = 500;
             const ratio = Math.min(1, targetWidth / item.imageWidth);
@@ -969,7 +1031,7 @@ export default function App() {
               }
             }));
           } catch (e) {
-            console.error("Failed to add image to word document");
+            console.error("Failed to add image to word document", e);
           }
         }
 
@@ -1025,8 +1087,8 @@ export default function App() {
           paras.push(table);
         }
 
-        return paras;
-      });
+        paragraphs.push(...paras);
+      }
 
       allChildren.push(...paragraphs);
     }
@@ -1255,6 +1317,47 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const resetAllData = async () => {
+    const today = new Date().getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
+    if (![3, 4, 5, 6].includes(today)) {
+      alert("전 교구 초기화는 수요일, 목요일, 금요일, 토요일에만 가능합니다.");
+      return;
+    }
+
+    const password = prompt("전체 초기화 비밀번호를 입력하세요:");
+    if (password !== "skmt0909!!") {
+      if (password !== null) alert("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    if (window.confirm("정말로 모든 교구/교회의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!")) {
+      const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+      
+      for (const p of Object.keys(PARISH_CHURCH_MAP)) {
+        for (const c of PARISH_CHURCH_MAP[p]) {
+          const key = `report_${p}_${c}`;
+          localStorage.setItem(key, JSON.stringify(defaultData));
+          
+          if (db) {
+            try {
+              await setDoc(doc(db, "reports", `${p}_${c}`), {
+                ...defaultData,
+                updatedAt: new Date().toISOString()
+              });
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
+      }
+      setReportData(DEFAULT_REPORT);
+      setLastSaved(null);
+      setStatus('draft');
+      updateParishStats();
+      alert("전 교구 데이터가 성공적으로 초기화되었습니다.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 p-6 font-sans text-slate-800">
       <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6">
@@ -1307,6 +1410,14 @@ export default function App() {
                 >
                   <FileJson className="w-4 h-4" />
                   추출
+                </button>
+                <button 
+                  onClick={resetAllData}
+                  className="flex items-center gap-1.5 text-sm bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
+                  title="모든 교구/교회 데이터 초기화"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  전체 초기화
                 </button>
               </div>
             </div>
