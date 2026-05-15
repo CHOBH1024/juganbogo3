@@ -7,9 +7,7 @@ import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-im
 import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { parseHtmlTable } from './lib/tableParser';
-import { db, storage } from './lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { supabase } from './lib/supabase';
 
 interface ReportItem {
   id: number;
@@ -230,21 +228,25 @@ export default function App() {
          setStatus('draft');
       }
       
-      // Fetch from Firebase to get latest if exists
-      if (db) {
+      // Fetch from Supabase to get latest if exists
+      if (supabase) {
          try {
-            const docSnap = await getDoc(doc(db, "reports", `${parish}_${church}`));
-            if (docSnap.exists()) {
-               const fireData = docSnap.data();
-               setReportData(fireData.data && fireData.data.length > 0 ? fireData.data : DEFAULT_REPORT);
-               setLastSaved(fireData.lastSaved || null);
-               setStatus(fireData.status || 'draft');
-               const maxId = Math.max(4, ...(fireData.data || DEFAULT_REPORT).map((d: any) => d.id));
+            const { data: supaData, error } = await supabase
+              .from('reports')
+              .select('*')
+              .eq('id', `${parish}_${church}`)
+              .single();
+              
+            if (supaData && !error) {
+               setReportData(supaData.data && supaData.data.length > 0 ? supaData.data : DEFAULT_REPORT);
+               setLastSaved(supaData.lastSaved || null);
+               setStatus(supaData.status || 'draft');
+               const maxId = Math.max(4, ...(supaData.data || DEFAULT_REPORT).map((d: any) => d.id));
                setNextId(maxId + 1);
-               localStorage.setItem(key, JSON.stringify(fireData));
+               localStorage.setItem(key, JSON.stringify(supaData));
             }
          } catch(e) {
-            console.error("Firebase load failed", e);
+            console.error("Supabase load failed", e);
          }
       }
       setAiCorrections(null);
@@ -262,16 +264,17 @@ export default function App() {
     const saveData = { data: reportData, lastSaved: timestamp, status };
     localStorage.setItem(key, JSON.stringify(saveData));
 
-    // Firebase save with debounce
+    // Supabase save with debounce
     const timeoutId = setTimeout(async () => {
-      if (!db) return;
+      if (!supabase) return;
       try {
-        await setDoc(doc(db, "reports", `${parish}_${church}`), {
+        await supabase.from('reports').upsert({
+          id: `${parish}_${church}`,
           ...saveData,
-          updatedAt: new Date().toISOString()
+          updated_at: new Date().toISOString()
         });
       } catch (e) {
-        console.error("Firebase save failed:", e);
+        console.error("Supabase save failed:", e);
       }
     }, 2000); // 2 seconds debounce
 
@@ -373,19 +376,30 @@ export default function App() {
       imageHeight: finalHeight
     } : item));
 
-    // Upload to Firebase if available
-    if (storage) {
+    // Upload to Supabase if available
+    if (supabase) {
       const timestamp = new Date().getTime();
-      const imageRef = ref(storage, `images/${parish}/${church}/${timestamp}.jpg`);
-      uploadString(imageRef, dataUrl, 'data_url').then(async () => {
-        const downloadUrl = await getDownloadURL(imageRef);
-        setReportData(data => data.map(item => item.id === cropItemId ? { 
-          ...item, 
-          image: downloadUrl
-        } : item));
-      }).catch(e => {
-        console.error("Image upload failed", e);
-      });
+      const filePath = `${parish}/${church}/${timestamp}.jpg`;
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const { data, error } = await supabase.storage
+          .from('images')
+          .upload(filePath, blob, { contentType: 'image/jpeg' });
+          
+        if (!error) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
+            
+          setReportData(data => data.map(item => item.id === cropItemId ? { 
+            ...item, 
+            image: publicUrl
+          } : item));
+        } else {
+          console.error("Image upload failed", error);
+        }
+      }, 'image/jpeg', 0.8);
     }
   };
 
@@ -1338,11 +1352,12 @@ export default function App() {
           const key = `report_${p}_${c}`;
           localStorage.setItem(key, JSON.stringify(defaultData));
           
-          if (db) {
+          if (supabase) {
             try {
-              await setDoc(doc(db, "reports", `${p}_${c}`), {
+              await supabase.from('reports').upsert({
+                id: `${p}_${c}`,
                 ...defaultData,
-                updatedAt: new Date().toISOString()
+                updated_at: new Date().toISOString()
               });
             } catch (e) {
               console.error(e);
