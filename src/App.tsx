@@ -755,11 +755,12 @@ export default function App() {
   };
 
   const checkWithAI = async () => {
-    const apiKey = geminiApiKey || localStorage.getItem('gemini_api_key') || '';
+    // Priority: Vercel env var → localStorage → user input
+    const apiKey = (process.env.GEMINI_API_KEY as string) || geminiApiKey || localStorage.getItem('gemini_api_key') || '';
     if (!apiKey) {
       setTempApiKey('');
       setShowApiKeyModal(true);
-      alert('AI 기능을 사용하려면 먼저 Gemini API 키를 설정해주세요.\n우상단 ⚙️ 설정 버튼을 눌러 키를 입력하세요.');
+      alert('AI 기능을 사용하려면 먼저 Gemini API 키를 설정해주세요.\n우상단 키 버튼을 눌러 입력하세요.');
       return;
     }
     setIsCheckingAI(true);
@@ -786,7 +787,7 @@ export default function App() {
       `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -1272,6 +1273,7 @@ export default function App() {
                 )}
               </h2>
               <div className="flex gap-2">
+                {!(process.env.GEMINI_API_KEY as string) && (
                 <button
                   onClick={() => { setTempApiKey(geminiApiKey); setShowApiKeyModal(true); }}
                   className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md transition-colors shadow-sm border ${
@@ -1284,6 +1286,12 @@ export default function App() {
                   <Key className="w-4 h-4" />
                   {geminiApiKey ? 'API 키 설정됨' : 'API 키 필요'}
                 </button>
+                )}
+                {(process.env.GEMINI_API_KEY as string) && (
+                  <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
+                    <Check className="w-4 h-4" /> AI 준비됨
+                  </span>
+                )}
                 <button 
                   onClick={() => setShowGuideModal(true)}
                   className="flex items-center gap-1.5 text-sm bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
