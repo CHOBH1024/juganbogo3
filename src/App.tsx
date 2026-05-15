@@ -154,6 +154,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice'>('report');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
+  const [mobileView, setMobileView] = useState<'editor' | 'preview'>('editor');
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
@@ -367,6 +368,8 @@ export default function App() {
 
   // Load data when parish or church changes
   useEffect(() => {
+    if (activeTab === 'notice_write' || activeTab === 'notice') return;
+    
     const loadData = async () => {
       const key = `report_${parish}_${church}`;
       const savedLocal = localStorage.getItem(key);
@@ -411,10 +414,11 @@ export default function App() {
       setAiCorrections(null);
     };
     loadData();
-  }, [parish, church]);
+  }, [parish, church, activeTab]);
 
   // Silent auto-save on data change
   useEffect(() => {
+    if (activeTab === 'notice_write' || activeTab === 'notice') return;
     if (reportData === DEFAULT_REPORT && !lastSaved) return; 
     const key = `report_${parish}_${church}`;
     const timestamp = lastSaved || new Date().toLocaleString('ko-KR');
@@ -438,7 +442,7 @@ export default function App() {
     }, 2000); // 2 seconds debounce
 
     return () => clearTimeout(timeoutId);
-  }, [reportData, parish, church, status, lastSaved]);
+  }, [reportData, parish, church, status, lastSaved, activeTab]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
     const file = e.target.files?.[0];
@@ -1629,12 +1633,12 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 sm:p-6 font-sans text-slate-800 flex flex-col">
-      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-3 flex-wrap">
-         <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
-         <button onClick={handleAssociationTab} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
-         <button onClick={handleNoticeWriteTab} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
-         <button onClick={() => setActiveTab('notice')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+    <div className="min-h-screen bg-slate-100 p-2 sm:p-4 md:p-6 font-sans text-slate-800 flex flex-col">
+      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x whitespace-nowrap">
+         <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
+         <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
+         <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
+         <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
       </div>
 
       {activeTab === 'notice' && (
@@ -1733,10 +1737,17 @@ export default function App() {
       )}
 
       {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
-      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0 overflow-hidden">
+      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0 overflow-hidden">
         
-        {/* Editor Panel */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-3rem)]">
+        {/* Mobile Tab Switcher */}
+        <div className="flex xl:hidden mb-3 bg-white rounded-lg shadow-sm p-1 border border-slate-200">
+          <button onClick={() => setMobileView('editor')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'editor' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📝 작성창</button>
+          <button onClick={() => setMobileView('preview')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'preview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>👀 미리보기</button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0">
+          {/* Editor Panel */}
+          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
           
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
@@ -2418,7 +2429,7 @@ export default function App() {
         </div>
 
         {/* Preview Panel */}
-        <div className="bg-[#fafbfc] p-8 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-3rem)] overflow-y-auto">
+        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
           <div className="mb-8 font-serif">
             <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
@@ -2433,7 +2444,6 @@ export default function App() {
             {renderPreviewLines()}
           </div>
         </div>
-
       </div>
       )}
 
