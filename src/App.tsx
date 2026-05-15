@@ -151,7 +151,22 @@ export default function App() {
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
 
-  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice'>('report');
+  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice'>('report');
+  const [noticeTitle, setNoticeTitle] = useState('');
+  const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
+
+  const handleNoticeWriteTab = () => {
+    if (activeTab === 'notice_write') return;
+    const pwd = prompt('공지사항 작성 비밀번호를 입력하세요:');
+    if (pwd === 'skmt0909!') {
+      setActiveTab('notice_write');
+      setReportData([]);
+      setNoticeTitle('');
+      setNoticePdfUrl(null);
+    } else {
+      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
+    }
+  };
 
   const handleAssociationTab = () => {
     if (activeTab === 'association') return;
@@ -221,6 +236,66 @@ export default function App() {
     } catch (err) {
       console.error(err);
       alert('업로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploadingNotice(false);
+    }
+  };
+
+  const handleNoticePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      alert('PDF 파일만 업로드 가능합니다.');
+      return;
+    }
+
+    setIsUploadingNotice(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `notice_pdf_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
+      setNoticePdfUrl(publicUrlData.publicUrl);
+      alert('PDF가 첨부되었습니다.');
+    } catch (err) {
+      console.error(err);
+      alert('PDF 업로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploadingNotice(false);
+    }
+  };
+
+  const handlePublishNotice = async () => {
+    if (!noticeTitle.trim()) { alert('공지사항 제목을 입력해주세요.'); return; }
+    if (reportData.length === 0 && !noticePdfUrl) { alert('내용을 작성하거나 PDF를 첨부해주세요.'); return; }
+    
+    setIsUploadingNotice(true);
+    try {
+      const newNotice = { 
+        id: Date.now().toString(), 
+        title: noticeTitle, 
+        pdfUrl: noticePdfUrl,
+        data: reportData.length > 0 ? reportData : null, 
+        created_at: new Date().toISOString() 
+      };
+      
+      const { data, error } = await supabase.from('reports').select('data').eq('id', 'SYSTEM_NOTICES').single();
+      const existingNotices = (!error && data?.data) ? data.data : [];
+      
+      const newNotices = [newNotice, ...existingNotices];
+      await supabase.from('reports').upsert({ id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
+      
+      setNotices(newNotices);
+      alert('공지사항이 성공적으로 등록되었습니다.');
+      setNoticeTitle('');
+      setReportData([]);
+      setNoticePdfUrl(null);
+      setActiveTab('notice');
+    } catch (e) {
+      console.error(e);
+      alert('등록 중 오류가 발생했습니다.');
     } finally {
       setIsUploadingNotice(false);
     }
@@ -525,7 +600,31 @@ export default function App() {
           tableHighlights: rows.map(r => r.map(() => false)),
           chartType: item.chartType || 'none' 
         } : item));
+        return;
       }
+    }
+
+    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+    if (lines.length > 1) {
+      e.preventDefault();
+      setReportData(data => {
+        const newData = [...data];
+        const targetIndex = newData.findIndex(item => item.id === id);
+        if (targetIndex !== -1) {
+          const currentItem = newData[targetIndex];
+          const isCurrentEmpty = !currentItem.text.trim();
+          newData[targetIndex] = { ...currentItem, text: isCurrentEmpty ? lines[0] : currentItem.text + ' ' + lines[0] };
+          
+          let maxId = Math.max(0, ...data.map(d => d.id));
+          const itemsToAdd = lines.slice(1).map((line, i) => ({
+            id: maxId + 1 + i,
+            text: line.trim(),
+            level: currentItem.level
+          }));
+          newData.splice(targetIndex + 1, 0, ...itemsToAdd);
+        }
+        return newData;
+      });
     }
   };
 
@@ -1391,37 +1490,60 @@ export default function App() {
                             
                             for (let r = 0; r < rowSpan; r++) {
                               for (let c = 0; c < colSpan; c++) {
-                                if (r === 0 && c === 0) continue;
-                                skippedCells.add(`${rIdx + r},${cIdx + c}`);
-                              }
-                            }
-                            const isHighlighted = item.tableHighlights?.[rIdx]?.[cIdx];
-                            const align = item.tableAlignments?.[rIdx]?.[cIdx] || (colSpan > 1 ? 'center' : 'left');
-                            const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
-                            return (
-                              <td key={cIdx} colSpan={colSpan} rowSpan={rowSpan} className={`border border-slate-400 p-2 whitespace-pre-line break-words ${isHighlighted ? 'bg-blue-50 font-bold text-slate-900 border-blue-300' : 'bg-white text-slate-800'} ${alignClass}`}>
-                                {cell}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-        </div>
-      );
-    });
-  };
+                    const resetAllData = async () => {
+    const today = new Date().getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
+    if (![3, 4, 5, 6].includes(today)) {
+      alert("초기화는 수요일, 목요일, 금요일, 토요일에만 가능합니다.");
+      return;
+    }
 
-  const getParishData = () => {
-    const parishData: Record<string, any> = {};
-    const churches = PARISH_CHURCH_MAP[parish];
+    const password = prompt("초기화 비밀번호를 입력하세요:");
+    if (password !== "skmt0909!") {
+      if (password !== null) alert("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    let targetParishes: string[] = [];
+    let confirmMsg = "";
     
-    churches.forEach(c => {
+    if (activeTab === 'report') {
+      confirmMsg = "정말로 [모든 교구]의 데이터를 초기화하시겠습니까?\n(협회 데이터는 유지되며, 이 작업은 복구할 수 없습니다!)";
+      targetParishes = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회');
+    } else if (activeTab === 'association') {
+      confirmMsg = "정말로 [협회]의 전체 데이터를 초기화하시겠습니까?\n(이 작업은 복구할 수 없습니다!)";
+      targetParishes = ['협회'];
+    } else {
+      return;
+    }
+
+    if (window.confirm(confirmMsg)) {
+      const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+      
+      for (const p of targetParishes) {
+        for (const c of PARISH_CHURCH_MAP[p]) {
+          const key = `report_${p}_${c}`;
+          localStorage.setItem(key, JSON.stringify(defaultData));
+          
+          if (supabase) {
+            try {
+              await supabase.from('reports').upsert({
+                id: `${p}_${c}`,
+                ...defaultData,
+                updated_at: new Date().toISOString()
+              });
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
+      }
+      setReportData(DEFAULT_REPORT);
+      setLastSaved(null);
+      setStatus('draft');
+      updateParishStats();
+      alert("데이터가 성공적으로 초기화되었습니다.");
+    }
+  };   churches.forEach(c => {
       let dataToUse: ReportItem[] = [];
       
       // 현재 선택된 교회는 입력 중인 최신 상태(reportData)를 사용
@@ -1508,9 +1630,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 sm:p-6 font-sans text-slate-800 flex flex-col">
-      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-3">
+      <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-3 flex-wrap">
          <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
          <button onClick={handleAssociationTab} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
+         <button onClick={handleNoticeWriteTab} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
          <button onClick={() => setActiveTab('notice')} className={`px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
       </div>
 
@@ -1523,11 +1646,21 @@ export default function App() {
                 {!isAdmin ? (
                   <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 px-2 py-1 rounded">관리자 로그인</button>
                 ) : (
-                  <label className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2.5 py-1.5 rounded cursor-pointer font-bold flex items-center gap-1 transition-colors">
-                    {isUploadingNotice ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    {isUploadingNotice ? '업로드중...' : '공지 올리기 (PDF)'}
-                    <input type="file" accept="application/pdf" className="hidden" onChange={handleNoticeUpload} disabled={isUploadingNotice} />
-                  </label>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={async () => {
+                        if(window.confirm('정말로 모든 공지사항을 삭제하시겠습니까? (복구 불가)')) {
+                          await supabase.from('reports').upsert({ id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
+                          setNotices([]);
+                          setActiveNotice(null);
+                          alert('모든 공지사항이 초기화되었습니다.');
+                        }
+                      }}
+                      className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1.5 rounded font-bold transition-colors"
+                    >
+                      전체 초기화
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -1548,13 +1681,50 @@ export default function App() {
                 )}
               </div>
             </div>
-            <div className="w-full md:w-2/3 lg:w-3/4 bg-slate-200 flex-1 relative flex flex-col h-full">
+            <div className="w-full md:w-2/3 lg:w-3/4 bg-slate-200 flex-1 relative flex flex-col h-full overflow-y-auto">
               {activeNotice ? (
-                <iframe src={activeNotice.pdfUrl} className="w-full h-full border-0 flex-1" title="PDF Viewer" />
+                <div className="flex-1 flex flex-col h-full">
+                  {activeNotice.pdfUrl && (
+                    <iframe src={activeNotice.pdfUrl} className="w-full border-0 flex-1 min-h-[1000px]" title="PDF Viewer" />
+                  )}
+                  {activeNotice.data && activeNotice.data.length > 0 && (
+                    <div className="p-6 md:p-10 bg-white font-serif text-slate-900 mx-auto w-full max-w-4xl shadow-sm min-h-full">
+                      <h1 className="text-2xl md:text-3xl font-black mb-8 pb-4 border-b-2 border-blue-600 text-center text-slate-800">{activeNotice.title}</h1>
+                      {activeNotice.data.map((item: any) => (
+                        <div key={item.id} className="mb-3" style={{ paddingLeft: `${item.level * 24}px` }}>
+                          {item.level === 0 ? (
+                            <div className="font-bold text-lg md:text-xl text-blue-800 border-b border-blue-100 pb-1 mt-6 mb-2">{item.text}</div>
+                          ) : (
+                            <div className="flex items-start gap-2 text-sm md:text-base text-slate-800">
+                              <span className="text-blue-500 mt-0.5">•</span>
+                              <div className="whitespace-pre-wrap leading-relaxed flex-1">{item.text}</div>
+                            </div>
+                          )}
+                          {item.image && <img src={item.image} alt="첨부" className="mt-3 max-h-64 object-contain rounded-lg border border-slate-200 shadow-sm" />}
+                          {item.tableData && (
+                            <div className="mt-3 overflow-x-auto w-full">
+                              <table className="w-full border-collapse border border-slate-300 text-xs md:text-sm text-center bg-white shadow-sm">
+                                <tbody>
+                                  {item.tableData.map((row: any, rIdx: number) => (
+                                    <tr key={rIdx} className={rIdx === 0 ? "bg-slate-100 font-bold border-b-2 border-slate-300" : "hover:bg-slate-50 transition-colors"}>
+                                      {row.map((cell: any, cIdx: number) => (
+                                        <td key={cIdx} className={`border border-slate-300 p-2 md:p-3 ${cIdx === 0 ? 'bg-slate-50 font-bold text-slate-700' : 'text-slate-600'}`}>{cell}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                  <FileText className="w-16 h-16 mb-4 text-slate-300" />
-                  <p>좌측에서 공지사항을 선택하시면 PDF가 표시됩니다.</p>
+                  <FileText className="w-16 h-16 mb-4 text-slate-300 opacity-50" />
+                  <p>좌측에서 공지사항을 선택하시면 내용이 표시됩니다.</p>
                 </div>
               )}
             </div>
@@ -1562,7 +1732,7 @@ export default function App() {
         </div>
       )}
 
-      {(activeTab === 'report' || activeTab === 'association') && (
+      {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
       <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0 overflow-hidden">
         
         {/* Editor Panel */}
@@ -1571,7 +1741,7 @@ export default function App() {
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                {activeTab === 'association' ? '협회 보고서 작성' : '교구 보고서 작성'}
+                {activeTab === 'association' ? '협회 보고서 작성' : activeTab === 'notice_write' ? '공지사항 작성 에디터' : '교구 보고서 작성'}
                 {lastSaved && (
                   <span className="text-xs font-normal text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full">
                     <Clock className="w-3 h-3" /> 최근 저장: {lastSaved}
@@ -1611,34 +1781,51 @@ export default function App() {
             
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
-                {activeTab !== 'association' && (
-                  <div className="flex-1">
-                    <label htmlFor="parishSelect" className="block text-xs font-bold text-slate-500 mb-1">교구</label>
-                    <select 
-                      id="parishSelect" 
-                      value={parish}
-                      onChange={handleParishChange}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                    >
-                      {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
-                        <option key={p} value={p}>{getDisplayParish(p)}</option>
-                      ))}
-                    </select>
+                {activeTab === 'notice_write' ? (
+                  <div className="flex-1 flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-xs font-bold text-slate-500 mb-1">공지사항 제목</label>
+                      <input type="text" value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-medium" placeholder="제목을 입력하세요..." />
+                    </div>
+                    <label className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-3 py-2.5 rounded cursor-pointer font-bold flex items-center gap-1 transition-colors shrink-0 h-[38px]">
+                      {isUploadingNotice ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {isUploadingNotice ? 'PDF 첨부중...' : 'PDF 첨부 (선택)'}
+                      <input type="file" accept="application/pdf" className="hidden" onChange={handleNoticePdfUpload} disabled={isUploadingNotice} />
+                    </label>
+                    {noticePdfUrl && <span className="text-xs text-blue-600 font-bold mb-2 shrink-0 self-center">PDF 첨부됨</span>}
                   </div>
+                ) : (
+                  <>
+                    {activeTab !== 'association' && (
+                      <div className="flex-1">
+                        <label htmlFor="parishSelect" className="block text-xs font-bold text-slate-500 mb-1">교구</label>
+                        <select 
+                          id="parishSelect" 
+                          value={parish}
+                          onChange={handleParishChange}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                        >
+                          {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
+                            <option key={p} value={p}>{getDisplayParish(p)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">{activeTab === 'association' ? '협회 부서' : '교회'}</label>
+                      <select 
+                        id="churchSelect" 
+                        value={church}
+                        onChange={(e) => handleChurchChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                      >
+                        {(PARISH_CHURCH_MAP[parish] || []).map(c => (
+                          <option key={c} value={c}>{getDisplayChurch(c)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 )}
-                <div className="flex-1">
-                  <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">{activeTab === 'association' ? '협회 부서' : '교회'}</label>
-                  <select 
-                    id="churchSelect" 
-                    value={church}
-                    onChange={(e) => handleChurchChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                  >
-                    {(PARISH_CHURCH_MAP[parish] || []).map(c => (
-                      <option key={c} value={c}>{getDisplayChurch(c)}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <div className="flex justify-between items-center mb-2">
@@ -2191,21 +2378,33 @@ export default function App() {
               </button>
             </div>
             <div className="flex gap-2">
-              <button 
-                onClick={() => handleSave(true)}
-                disabled={isSaving || status === 'submitted'}
-                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors disabled:opacity-70 ${status === 'submitted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-              >
-                <Check className="w-4 h-4" />
-                {status === 'submitted' ? '제출 완료' : '제출 확정'}
-              </button>
-              {status === 'submitted' && (
+              {activeTab === 'notice_write' ? (
                 <button 
-                  onClick={() => { setStatus('draft'); handleSave(false); }}
-                  className="flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
+                  onClick={handlePublishNotice}
+                  className="w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold shadow-sm transition-colors bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
-                  <X className="w-4 h-4" /> 제출 취소
+                  <Check className="w-5 h-5" />
+                  공지사항 작성 및 등록 완료
                 </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => handleSave(true)}
+                    disabled={isSaving || status === 'submitted'}
+                    className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors disabled:opacity-70 ${status === 'submitted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                  >
+                    <Check className="w-4 h-4" />
+                    {status === 'submitted' ? '제출 완료' : '제출 확정'}
+                  </button>
+                  {status === 'submitted' && (
+                    <button 
+                      onClick={() => { setStatus('draft'); handleSave(false); }}
+                      className="flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
+                    >
+                      <X className="w-4 h-4" /> 제출 취소
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <button 
@@ -2223,11 +2422,11 @@ export default function App() {
           <div className="mb-8 font-serif">
             <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
-                &lt;{getDisplayParish(parish)}&gt; 주간업무보고
+                {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
               </div>
             </div>
             <div className="text-xl font-black text-blue-700 mb-6 drop-shadow-sm">
-              1. {getDisplayChurch(church)}
+              {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `1. ${getDisplayChurch(church)}`}
             </div>
           </div>
           <div className="flex-1 font-serif text-slate-900">
