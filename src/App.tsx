@@ -1016,12 +1016,29 @@ export default function App() {
     setAiCorrections(null);
 
     try {
-      const payload = reportData.filter(item => item.text.trim() !== "");
+      let allPayload: any[] = [];
+      const churches = PARISH_CHURCH_MAP[parish] || [church];
+      for (const c of churches) {
+         let dataToUse: ReportItem[] = [];
+         if (c === church) {
+            dataToUse = getCleanData(reportData);
+         } else {
+            const key = `report_${parish}_${c}`;
+            const saved = localStorage.getItem(key);
+            if (saved) {
+               try { dataToUse = getCleanData(JSON.parse(saved).data || []); } catch(e){}
+            }
+         }
+         dataToUse.filter(item => item.text.trim() !== "").forEach(item => {
+             allPayload.push({ church: c, id: item.id, text: item.text });
+         });
+      }
+
       const prompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
-아래 제공된 데이터의 텍스트(text)를 검토하세요.
+아래 제공된 데이터의 텍스트(text)를 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
 1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목을 찾으세요.
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
-[{ "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "reason": "이유" }]`;
+[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정 및 양식에 맞춘 텍스트", "reason": "이유" }]`;
 
       let text = "";
 
@@ -1031,7 +1048,7 @@ export default function App() {
           const session = await (window as any).ai.languageModel.create({
              systemPrompt: "You return only valid JSON arrays. Do not use markdown blocks."
           });
-          const nanoPrompt = `${prompt}\n\n데이터:\n${JSON.stringify(payload, null, 2)}`;
+          const nanoPrompt = `${prompt}\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`;
           text = await session.prompt(nanoPrompt);
         }
       } catch (e) {
@@ -1060,7 +1077,7 @@ export default function App() {
               body: JSON.stringify({
                 model: "google/gemini-2.0-flash-lite-preview-02-05:free",
                 response_format: { type: "json_object" },
-                messages: [{ role: "user", content: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}` }]
+                messages: [{ role: "user", content: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }]
               })
             });
             if (res.ok) {
@@ -1077,7 +1094,7 @@ export default function App() {
           const ai = new GoogleGenAI({ apiKey });
           const response = await ai.models.generateContent({
             model: 'gemini-2.0-flash',
-            contents: prompt + `\n\n데이터:\n${JSON.stringify(payload, null, 2)}`,
+            contents: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`,
             config: {
               responseMimeType: "application/json",
               responseSchema: {
@@ -1085,12 +1102,13 @@ export default function App() {
                 items: {
                   type: Type.OBJECT,
                   properties: {
+                    church: { type: Type.STRING, description: "church" },
                     id: { type: Type.INTEGER, description: "id" },
                     original: { type: Type.STRING, description: "original" },
                     corrected: { type: Type.STRING, description: "corrected" },
                     reason: { type: Type.STRING, description: "reason" }
                   },
-                  required: ["id", "original", "corrected", "reason"]
+                  required: ["church", "id", "original", "corrected", "reason"]
                 }
               }
             }
@@ -1098,9 +1116,12 @@ export default function App() {
           text = response.text || "[]";
         }
       }
-      // strip markdown wrapper if exists
-      text = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
-      const corrections = JSON.parse(text);
+      
+      let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+      const match = cleanText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (match) cleanText = match[0];
+      
+      const corrections = JSON.parse(cleanText);
       setAiCorrections(corrections);
     } catch (err) {
       console.error(err);
@@ -1111,17 +1132,59 @@ export default function App() {
     }
   };
 
-  const applyCorrection = (id: number, correctedText: string) => {
-    updateText(id, correctedText);
-    setAiCorrections(prev => prev ? prev.filter(c => c.id !== id) : null);
+  const applyCorrection = (churchName: string, id: number, correctedText: string) => {
+    if (churchName === church) {
+      updateText(id, correctedText);
+    } else {
+      const key = `report_${parish}_${churchName}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+           const parsed = JSON.parse(saved);
+           if (parsed.data) {
+             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText } : item);
+             localStorage.setItem(key, JSON.stringify(parsed));
+             if (supabase) {
+                supabase.from('reports').upsert({ id: `${parish}_${churchName}`, ...parsed, updated_at: new Date().toISOString() }).then();
+             }
+           }
+        } catch(e){}
+      }
+    }
+    setAiCorrections(prev => prev ? prev.filter(c => !(c.id === id && c.church === churchName)) : null);
   };
 
   const applyAllCorrections = () => {
     if (!aiCorrections) return;
-    const updates = new Map(aiCorrections.map(c => [c.id, c.corrected]));
-    setReportData(data => data.map(item => 
-      updates.has(item.id) ? { ...item, text: updates.get(item.id)! } : item
-    ));
+    
+    const byChurch: Record<string, {id: number, text: string}[]> = {};
+    aiCorrections.forEach(c => {
+       if (!byChurch[c.church]) byChurch[c.church] = [];
+       byChurch[c.church].push({ id: c.id, text: c.corrected });
+    });
+
+    Object.entries(byChurch).forEach(([cName, updates]) => {
+       const updateMap = new Map(updates.map(u => [u.id, u.text]));
+       if (cName === church) {
+          setReportData(data => data.map(item => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item));
+       } else {
+          const key = `report_${parish}_${cName}`;
+          const saved = localStorage.getItem(key);
+          if (saved) {
+             try {
+                const parsed = JSON.parse(saved);
+                if (parsed.data) {
+                   parsed.data = parsed.data.map((item: any) => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item);
+                   localStorage.setItem(key, JSON.stringify(parsed));
+                   if (supabase) {
+                      supabase.from('reports').upsert({ id: `${parish}_${cName}`, ...parsed, updated_at: new Date().toISOString() }).then();
+                   }
+                }
+             } catch(e){}
+          }
+       }
+    });
+
     setAiCorrections([]);
   };
 
@@ -2479,26 +2542,41 @@ export default function App() {
                         <AlertCircle className="w-5 h-5" /> 
                         총 {aiCorrections.length}건의 수정 제안이 있습니다.
                       </div>
-                      {aiCorrections.map((corr) => (
-                        <div key={corr.id} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
-                          <div className="p-3 border-b border-slate-100 flex gap-4">
-                            <div className="flex-1">
-                              <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded mr-2">원본</span>
-                              <span className="text-slate-600 line-through decoration-red-300">{corr.original}</span>
-                            </div>
-                            <div className="flex-1">
-                              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
-                              <span className="text-slate-900 font-medium">{corr.corrected}</span>
-                            </div>
-                          </div>
-                          <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
-                            <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
-                            <button 
-                              onClick={() => applyCorrection(corr.id, corr.corrected)}
-                              className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
-                            >
-                              이 항목만 적용
-                            </button>
+                      {Object.entries(
+                        aiCorrections.reduce((acc, corr) => {
+                          if (!acc[corr.church]) acc[corr.church] = [];
+                          acc[corr.church].push(corr);
+                          return acc;
+                        }, {} as Record<string, any[]>)
+                      ).map(([churchName, corrs]) => (
+                        <div key={churchName} className="mb-6">
+                          <h4 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <BookOpen className="w-5 h-5 text-blue-600" /> {churchName}
+                          </h4>
+                          <div className="space-y-4 pl-2 border-l-2 border-blue-200">
+                            {corrs.map((corr) => (
+                              <div key={`${corr.church}-${corr.id}`} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
+                                <div className="p-3 border-b border-slate-100 flex gap-4">
+                                  <div className="flex-1">
+                                    <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded mr-2">원본</span>
+                                    <span className="text-slate-600 line-through decoration-red-300">{corr.original}</span>
+                                  </div>
+                                  <div className="flex-1">
+                                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
+                                    <span className="text-slate-900 font-medium">{corr.corrected}</span>
+                                  </div>
+                                </div>
+                                <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
+                                  <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
+                                  <button 
+                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected)}
+                                    className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
+                                  >
+                                    이 항목만 적용
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ))}
