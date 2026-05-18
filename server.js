@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ImageRun } from 'docx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,248 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 // Serve uploaded images/PDFs statically
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Word 문서 자동 컴파일 도구 (Google Drive 스트리밍 지원)
+function toRoman(num) {
+  const lookup = { M:1000,CM:900,D:500,CD:400,C:100,XC:90,L:50,XL:40,X:10,IX:9,V:5,IV:4,I:1 };
+  let roman = '';
+  for (let i in lookup) {
+    while (num >= lookup[i]) {
+      roman += i;
+      num -= lookup[i];
+    }
+  }
+  return roman;
+}
+
+function toCircled(num) {
+  const circles = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮"];
+  return circles[num - 1] || `(${num})`;
+}
+
+async function generateWordDocument(id, payload) {
+  if (!id.startsWith('report_')) return;
+  const parts = id.split('_');
+  if (parts.length < 3) return;
+  const parish = parts[1];
+  const church = parts[2];
+  
+  // 1. Google Drive 스트리밍 경로 찾기
+  let gDriveDir = null;
+  const possiblePaths = [
+    'C:\\Users\\note\\Google Drive 스트리밍\\내 드라이브',
+    'G:\\내 드라이브',
+    'G:\\My Drive',
+    path.join(__dirname, 'google_drive_sync')
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      gDriveDir = path.join(p, '주간보고_제출현황');
+      break;
+    }
+  }
+  if (!gDriveDir) {
+    gDriveDir = path.join(__dirname, 'google_drive_sync');
+  }
+
+  if (!fs.existsSync(gDriveDir)) {
+    fs.mkdirSync(gDriveDir, { recursive: true });
+  }
+
+  // 2. Word 문서 빌드 시작
+  const docChildren = [];
+
+  // 타이틀
+  docChildren.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: `${parish} - ${church} 주간보고서`,
+        bold: true,
+        size: 32, // 16pt
+        color: "1D4ED8",
+        font: "맑은 고딕"
+      })
+    ],
+    spacing: { after: 300 }
+  }));
+
+  // 시간 기록
+  const nowStr = new Date().toLocaleString('ko-KR');
+  docChildren.push(new Paragraph({
+    children: [
+      new TextRun({
+        text: `제출 시각: ${nowStr}`,
+        size: 18, // 9pt
+        color: "64748B",
+        font: "맑은 고딕"
+      })
+    ],
+    spacing: { after: 500 }
+  }));
+
+  const dataToUse = payload.data || [];
+  const counters = [0, 0, 0, 0];
+
+  for (const item of dataToUse) {
+    let prefix = "";
+    if (item.level === 0) {
+      counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+      prefix = toRoman(counters[0]) + ". ";
+    } else if (item.level === 1) {
+      counters[1]++; counters[2] = 0; counters[3] = 0;
+      prefix = counters[1] + ". ";
+    } else if (item.level === 2) {
+      counters[2]++; counters[3] = 0;
+      prefix = counters[2] + ") ";
+    } else if (item.level === 3) {
+      counters[3]++;
+      prefix = toCircled(counters[3]) + " ";
+    }
+
+    let color = "000000";
+    if (item.level <= 1) color = "1D4ED8"; // blue-700
+    
+    const lines = `${prefix}${item.text || ''}`.split('\n');
+
+    docChildren.push(new Paragraph({
+      children: lines.map((line, idx) => 
+        new TextRun({
+          text: line,
+          break: idx > 0 ? 1 : 0,
+          bold: item.level <= 1,
+          color: color,
+          font: "맑은 고딕",
+          size: 22, // 11pt
+        })
+      ),
+      indent: {
+        left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360))
+      },
+      spacing: {
+        before: item.level === 0 ? 360 : 120, 
+      }
+    }));
+
+    // 표(Table) 구현
+    if (item.tableData && item.tableData.length > 0) {
+      const skippedCells = new Set();
+      const docTable = new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: item.tableData.map((row, rIdx) => {
+          const cells = [];
+          row.forEach((cellText, cIdx) => {
+            if (skippedCells.has(`${rIdx},${cIdx}`)) return;
+            
+            const spanDef = item.tableSpans?.[rIdx]?.[cIdx];
+            const colSpan = (typeof spanDef === 'number' ? spanDef : spanDef?.colspan) || 1;
+            const rowSpan = (typeof spanDef === 'number' ? 1 : spanDef?.rowspan) || 1;
+            
+            for (let r = 0; r < rowSpan; r++) {
+              for (let c = 0; c < colSpan; c++) {
+                if (r === 0 && c === 0) continue;
+                skippedCells.add(`${rIdx + r},${cIdx + c}`);
+              }
+            }
+            
+            const align = item.tableAlignments?.[rIdx]?.[cIdx] || 'left';
+            const isHighlighted = item.tableHighlights?.[rIdx]?.[cIdx];
+            
+            cells.push(new TableCell({
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: cellText || '',
+                      bold: isHighlighted,
+                      color: isHighlighted ? "1D4ED8" : "000000",
+                      font: "맑은 고딕",
+                      size: 18
+                    })
+                  ],
+                  alignment: align === 'center' ? 'center' : align === 'right' ? 'right' : 'left'
+                })
+              ],
+              columnSpan: colSpan,
+              rowSpan: rowSpan,
+              shading: isHighlighted ? { fill: "EFF6FF" } : undefined
+            }));
+          });
+          return new TableRow({ children: cells });
+        })
+      });
+      docChildren.push(docTable);
+    }
+    
+    // 사진(Image) 구현
+    if (item.image && item.imageWidth && item.imageHeight) {
+      try {
+        let imageBuffer = null;
+        if (item.image.startsWith("http")) {
+          const urlParts = item.image.split('/uploads/');
+          if (urlParts.length > 1) {
+            const localPath = path.join(UPLOADS_DIR, urlParts[1]);
+            if (fs.existsSync(localPath)) {
+              imageBuffer = fs.readFileSync(localPath);
+            }
+          }
+        } else if (item.image.startsWith("data:image")) {
+          const base64Data = item.image.split(",")[1];
+          imageBuffer = Buffer.from(base64Data, 'base64');
+        }
+        
+        if (imageBuffer) {
+          const targetWidth = 500;
+          const ratio = Math.min(1, targetWidth / item.imageWidth);
+          const finalWidth = item.imageWidth * ratio;
+          const finalHeight = item.imageHeight * ratio;
+
+          docChildren.push(new Paragraph({
+            children: [
+              new ImageRun({
+                data: imageBuffer,
+                transformation: {
+                  width: finalWidth,
+                  height: finalHeight
+                },
+                type: "png"
+              })
+            ],
+            indent: {
+              left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360))
+            },
+            spacing: { before: 120 }
+          }));
+        }
+      } catch (e) {
+        console.error("[Word] Failed to embed image:", e);
+      }
+    }
+  }
+
+  // 3. Word 파일 물리 저장
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: docChildren
+    }]
+  });
+
+  try {
+    const buffer = await Packer.toBuffer(doc);
+    const parishPath = path.join(gDriveDir, parish);
+    if (!fs.existsSync(parishPath)) {
+      fs.mkdirSync(parishPath, { recursive: true });
+    }
+    const cleanChurchName = church.replace(/[\/\\?%*:|"<>. ]/g, '_');
+    const filename = `${cleanChurchName}_주간보고_${new Date().toISOString().slice(0, 10)}.docx`;
+    const finalFilePath = path.join(parishPath, filename);
+    fs.writeFileSync(finalFilePath, buffer);
+    console.log(`[GoogleDriveSync] Generated and saved Word document to: ${finalFilePath}`);
+  } catch (error) {
+    console.error("[GoogleDriveSync] Failed to write Word file:", error);
+  }
+}
+
 // 1. Save Report Data
 app.post('/api/save-data', (req, res) => {
   const { id, payload } = req.body;
@@ -47,6 +290,14 @@ app.post('/api/save-data', (req, res) => {
     const filePath = path.join(DB_DIR, `${id}.json`);
     fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     console.log(`[DB] Saved data for ID: ${id}`);
+    
+    // 제출 확정 시 비동기로 Word 문서 자동 빌드하여 구글 드라이브 동기화 폴더로 전송
+    if (payload && payload.status === 'submitted') {
+      generateWordDocument(id, payload).catch(err => {
+        console.error('[GoogleDriveSync] Async generation failed:', err);
+      });
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to save local data:', error);
