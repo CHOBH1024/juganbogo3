@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -9,8 +9,24 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianG
 import { parseHtmlTable } from './lib/tableParser';
 import { supabase } from './lib/supabase';
 
-// RLS 우회를 위한 Storage 기반 JSON DB 헬퍼
+// RLS 우회를 위한 Storage 기반 JSON DB 헬퍼 (로컬 및 클라우드 동시 지원)
 const fetchDbData = async (id: string) => {
+  const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
+  if (isLocal) {
+    try {
+      const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:5000' 
+        : `http://${window.location.hostname}:5000`;
+      const res = await fetch(`${serverUrl}/api/load-data/${id}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("Local DB load failed, trying localStorage fallback:", e);
+    }
+    return null;
+  }
+
   if (!supabase) return null;
   const { data, error } = await supabase.storage.from('images').download(`db_reports/${id}.json`);
   if (!error && data) {
@@ -23,6 +39,23 @@ const fetchDbData = async (id: string) => {
 };
 
 const saveDbData = async (id: string, payload: any) => {
+  const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
+  if (isLocal) {
+    try {
+      const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:5000' 
+        : `http://${window.location.hostname}:5000`;
+      await fetch(`${serverUrl}/api/save-data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, payload })
+      });
+    } catch (e) {
+      console.error("Local DB save failed:", e);
+    }
+    return;
+  }
+
   if (!supabase) return;
   try {
     const jsonString = JSON.stringify(payload);
@@ -31,6 +64,7 @@ const saveDbData = async (id: string, payload: any) => {
     console.error("Storage DB save failed:", e);
   }
 };
+
 
 interface ReportItem {
   id: number;
@@ -145,6 +179,7 @@ function buildTree(flatData: ReportItem[]) {
 
 export default function App() {
 
+  const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
   const [parish, setParish] = useState("천원특별");
   const [church, setChurch] = useState(PARISH_CHURCH_MAP["천원특별"][0]);
   
@@ -243,13 +278,35 @@ export default function App() {
 
     setIsUploadingNotice(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `notice_${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
-      if (uploadError) throw uploadError;
+      let pdfUrl = '';
+      if (isLocalMode) {
+        const filename = `notice_${Date.now()}.pdf`;
+        const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+          ? 'http://localhost:5000' 
+          : `http://${window.location.hostname}:5000`;
+        const res = await fetch(`${serverUrl}/api/upload-image`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'X-Filename': filename
+          },
+          body: file
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          pdfUrl = resData.url;
+        } else {
+          throw new Error('Local PDF upload failed');
+        }
+      } else {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `notice_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
+        if (uploadError) throw uploadError;
 
-      const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
-      const pdfUrl = publicUrlData.publicUrl;
+        const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
+        pdfUrl = publicUrlData.publicUrl;
+      }
 
       const newNotice = { id: Date.now().toString(), title, pdfUrl, created_at: new Date().toISOString() };
       const newNotices = [newNotice, ...notices];
@@ -275,13 +332,36 @@ export default function App() {
 
     setIsUploadingNotice(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `notice_pdf_${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
-      if (uploadError) throw uploadError;
+      let pdfUrl = '';
+      if (isLocalMode) {
+        const filename = `notice_pdf_${Date.now()}.pdf`;
+        const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+          ? 'http://localhost:5000' 
+          : `http://${window.location.hostname}:5000`;
+        const res = await fetch(`${serverUrl}/api/upload-image`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'X-Filename': filename
+          },
+          body: file
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          pdfUrl = resData.url;
+        } else {
+          throw new Error('Local PDF upload failed');
+        }
+      } else {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `notice_pdf_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('images').upload(fileName, file);
+        if (uploadError) throw uploadError;
 
-      const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
-      setNoticePdfUrl(publicUrlData.publicUrl);
+        const { data: publicUrlData } = supabase.storage.from('images').getPublicUrl(fileName);
+        pdfUrl = publicUrlData.publicUrl;
+      }
+      setNoticePdfUrl(pdfUrl);
       alert('PDF가 첨부되었습니다.');
     } catch (err) {
       console.error(err);
@@ -433,7 +513,7 @@ export default function App() {
       setAiCorrections(null);
     };
     loadData();
-  }, [parish, church, activeTab]);
+  }, [parish, church, activeTab, isLocalMode]);
 
   // Silent auto-save on data change
   useEffect(() => {
@@ -558,13 +638,44 @@ export default function App() {
       imageHeight: finalHeight
     } : item));
 
-    // Upload to Supabase if available
-    if (supabase) {
-      const timestamp = new Date().getTime();
-      const filePath = `${parish}/${church}/${timestamp}.jpg`;
-      
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
+    // Upload to local storage or Supabase
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+
+      if (isLocalMode) {
+        try {
+          const filename = `${parish}_${church}_${Date.now()}.jpg`.replace(/\s+/g, '_');
+          const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:5000' 
+            : `http://${window.location.hostname}:5000`;
+          
+          const res = await fetch(`${serverUrl}/api/upload-image`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'image/jpeg',
+              'X-Filename': filename
+            },
+            body: blob
+          });
+          
+          if (res.ok) {
+            const uploadData = await res.json();
+            setReportData(data => data.map(item => item.id === cropItemId ? { 
+              ...item, 
+              image: uploadData.url
+            } : item));
+          } else {
+            console.error("Local image upload API failed");
+          }
+        } catch (e) {
+          console.error("Local image upload failed:", e);
+        }
+        return;
+      }
+
+      if (supabase) {
+        const timestamp = new Date().getTime();
+        const filePath = `${parish}/${church}/${timestamp}.jpg`;
         const { data, error } = await supabase.storage
           .from('images')
           .upload(filePath, blob, { contentType: 'image/jpeg' });
@@ -581,8 +692,8 @@ export default function App() {
         } else {
           console.error("Image upload failed", error);
         }
-      }, 'image/jpeg', 0.8);
-    }
+      }
+    }, 'image/jpeg', 0.8);
   };
 
   const removeImage = (id: number) => {
@@ -979,6 +1090,45 @@ export default function App() {
     }));
   };
 
+  const moveL0Block = (index: number, direction: 'up' | 'down') => {
+    const blocks: ReportItem[][] = [];
+    let currentBlock: ReportItem[] = [];
+
+    reportData.forEach((item) => {
+      if (item.level === 0) {
+        if (currentBlock.length > 0) {
+          blocks.push(currentBlock);
+        }
+        currentBlock = [item];
+      } else {
+        currentBlock.push(item);
+      }
+    });
+    if (currentBlock.length > 0) {
+      blocks.push(currentBlock);
+    }
+
+    const targetItem = reportData[index];
+    const blockIndex = blocks.findIndex(b => b[0]?.id === targetItem.id);
+
+    if (blockIndex === -1) return;
+
+    if (direction === 'up' && blockIndex > 0) {
+      const temp = blocks[blockIndex];
+      blocks[blockIndex] = blocks[blockIndex - 1];
+      blocks[blockIndex - 1] = temp;
+    } else if (direction === 'down' && blockIndex < blocks.length - 1) {
+      const temp = blocks[blockIndex];
+      blocks[blockIndex] = blocks[blockIndex + 1];
+      blocks[blockIndex + 1] = temp;
+    } else {
+      return;
+    }
+
+    const newReportData = blocks.flat();
+    setReportData(newReportData);
+  };
+
   const addNewItem = (insertIndex: number = -1, defaultLevel: number = 1) => {
     const newItem = { id: nextId, text: "", level: defaultLevel };
     setNextId(prev => prev + 1);
@@ -1067,7 +1217,7 @@ export default function App() {
          });
       }
 
-      const prompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
+      const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
 아래 제공된 데이터의 텍스트(text)를 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
 1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목을 찾으세요.
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
@@ -1075,91 +1225,101 @@ export default function App() {
 
       let text = "";
 
-      // 1. 크롬 내장 Gemini Nano 시도
-      try {
-        if ('ai' in window && (window as any).ai?.languageModel) {
-          const session = await (window as any).ai.languageModel.create({
-             systemPrompt: "You return only valid JSON arrays. Do not use markdown blocks."
+      if (isLocalMode) {
+        try {
+          const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:5000' 
+            : `http://${window.location.hostname}:5000`;
+          
+          const res = await fetch(`${serverUrl}/api/ollama-chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`
+            })
           });
-          const nanoPrompt = `${prompt}\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`;
-          text = await session.prompt(nanoPrompt);
-        }
-      } catch (e) {
-        console.warn("Gemini Nano failed or not available", e);
-      }
-
-      // 2. Nano 실패 시 API로 폴백
-      if (!text) {
-        let openRouterKey = localStorage.getItem('OPENROUTER_KEY');
-        if (!openRouterKey) {
-          const inputKey = prompt("크롬 내장 AI(Nano)를 사용할 수 없습니다.\n오픈라우터(OpenRouter) API 키를 입력하시면 100% 무료 모델로 우회합니다.\n(취소하시면 기존 설정된 Gemini 키로 시도합니다.)");
-          if (inputKey) {
-            localStorage.setItem('OPENROUTER_KEY', inputKey);
-            openRouterKey = inputKey;
+          
+          if (res.ok) {
+            const data = await res.json();
+            text = data.text;
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || "Ollama API failed");
           }
+        } catch (e: any) {
+          console.error("Local Ollama AI check failed:", e);
+          alert(`로컬 AI 검토에 실패했습니다.\n사유: ${e.message}\nPC에서 Ollama가 켜져 있는지 확인해 주세요.\n(Ollama가 실행 중이 아니라면 우측 상단의 '클라우드 모드'로 전환하여 검토하실 수 있습니다.)`);
+          setIsCheckingAI(false);
+          setShowAiModal(false);
+          return;
         }
-
-        if (openRouterKey) {
-          try {
-            const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${openRouterKey}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                model: "google/gemini-2.0-flash-lite-preview-02-05:free",
-                response_format: { type: "json_object" },
-                messages: [{ role: "user", content: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }]
-              })
-            });
-            if (res.ok) {
-              const json = await res.json();
-              text = json.choices[0].message.content;
-            }
-          } catch(e) {
-            console.error("OpenRouter fallback failed", e);
-          }
-        }
+      } else {
+        let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
         
-        if (!text) {
-          let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-          try {
-            const ai = new GoogleGenAI({ apiKey: googleApiKey });
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.0-flash',
-              contents: prompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`,
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      church: { type: Type.STRING, description: "church" },
-                      id: { type: Type.INTEGER, description: "id" },
-                      original: { type: Type.STRING, description: "original" },
-                      corrected: { type: Type.STRING, description: "corrected" },
-                      reason: { type: Type.STRING, description: "reason" }
-                    },
-                    required: ["church", "id", "original", "corrected", "reason"]
-                  }
-                }
-              }
-            });
-            text = response.text || "[]";
-          } catch (e: any) {
-            if (e.message && e.message.includes('429')) {
-              const newKey = prompt("기본 제공된 구글 AI 키의 일일/분당 사용량이 초과되었습니다 (오류 429).\n본인의 구글 AI Studio API 키를 입력해주시면 계속 사용 가능합니다.\n키가 없다면 나중에 다시 시도해주세요:");
+        // 1. 구글 Gemini REST API (가장 빠르고 확실한 방법)
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }] }],
+              generationConfig: { responseMimeType: "application/json" }
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          } else if (response.status === 429) {
+            throw new Error("RATE_LIMIT");
+          } else {
+            throw new Error("API_ERROR");
+          }
+        } catch (e: any) {
+          console.warn("Gemini REST API failed", e);
+          if (e.message === "RATE_LIMIT") {
+              const newKey = prompt("기본 제공된 구글 AI 키의 사용량이 초과되었습니다 (오류 429).\n본인의 구글 AI Studio API 키를 입력해주시면 계속 사용 가능합니다.\n취소하시면 우회 채널(OpenRouter)로 재시도합니다.");
               if (newKey) {
-                localStorage.setItem('GEMINI_KEY', newKey);
-                alert("키가 저장되었습니다. 다시 AI 검토 버튼을 눌러주세요.");
-                setShowAiModal(false);
-                setIsCheckingAI(false);
-                return;
+                  localStorage.setItem('GEMINI_KEY', newKey);
+                  alert("키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.");
+                  setShowAiModal(false);
+                  setIsCheckingAI(false);
+                  return;
               }
-            } else {
-              throw e;
+          }
+        }
+
+        // 2. OpenRouter API 폴발 (우회 경로)
+        if (!text) {
+          let openRouterKey = localStorage.getItem('OPENROUTER_KEY');
+          if (!openRouterKey) {
+            const inputKey = prompt("Gemini에 연결할 수 없습니다.\n오픈라우터(OpenRouter) API 키를 입력하시면 무료 모델로 우회합니다.");
+            if (inputKey) {
+              localStorage.setItem('OPENROUTER_KEY', inputKey);
+              openRouterKey = inputKey;
+            }
+          }
+
+          if (openRouterKey) {
+            try {
+              const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${openRouterKey}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: "google/gemini-2.0-flash-lite-preview-02-05:free",
+                  response_format: { type: "json_object" },
+                  messages: [{ role: "user", content: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }]
+                })
+              });
+              if (res.ok) {
+                const json = await res.json();
+                text = json.choices[0].message.content;
+              }
+            } catch(e) {
+              console.error("OpenRouter fallback failed", e);
             }
           }
         }
@@ -1182,7 +1342,7 @@ export default function App() {
     }
   };
 
-  const applyCorrection = (churchName: string, id: number, correctedText: string) => {
+  const applyCorrection = async (churchName: string, id: number, correctedText: string) => {
     if (churchName === church) {
       updateText(id, correctedText);
     } else {
@@ -1204,7 +1364,7 @@ export default function App() {
     setAiCorrections(prev => prev ? prev.filter(c => !(c.id === id && c.church === churchName)) : null);
   };
 
-  const applyAllCorrections = () => {
+  const applyAllCorrections = async () => {
     if (!aiCorrections) return;
     
     const byChurch: Record<string, {id: number, text: string}[]> = {};
@@ -1213,7 +1373,7 @@ export default function App() {
        byChurch[c.church].push({ id: c.id, text: c.corrected });
     });
 
-    Object.entries(byChurch).forEach(([cName, updates]) => {
+    for (const [cName, updates] of Object.entries(byChurch)) {
        const updateMap = new Map(updates.map(u => [u.id, u.text]));
        if (cName === church) {
           setReportData(data => data.map(item => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item));
@@ -1233,7 +1393,7 @@ export default function App() {
              } catch(e){}
           }
        }
-    });
+    }
 
     setAiCorrections([]);
   };
@@ -1472,7 +1632,7 @@ export default function App() {
     handleSave();
   };
 
-  const renderPreviewLines = () => {
+const renderPreviewLines = () => {
     let counters = { 0: 0, 1: 0, 2: 0, 3: 0 };
     const cleanData = getCleanData(reportData);
 
@@ -1510,22 +1670,7 @@ export default function App() {
 
       return (
         <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
-          <div className="flex items-start">
-            <span className="shrink-0 whitespace-pre mt-[2px]">{prefix}</span>
-            <TextareaAutosize
-              value={item.text}
-              onChange={(e) => updateText(item.id, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  const idx = reportData.findIndex(r => r.id === item.id);
-                  if (idx !== -1) addNewItem(idx, item.level);
-                }
-              }}
-              className="w-full bg-transparent border-none outline-none resize-none p-0 m-0 focus:ring-0 focus:bg-white/50 rounded transition-colors placeholder-slate-300"
-              placeholder="(내용 없음)"
-            />
-          </div>
+          <div className="whitespace-pre-line">{prefix}{item.text || <span className="text-slate-300">(내용 없음)</span>}</div>
           {item.image && (
             <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
@@ -1607,7 +1752,32 @@ export default function App() {
                             
                             for (let r = 0; r < rowSpan; r++) {
                               for (let c = 0; c < colSpan; c++) {
-                    const resetAllData = async () => {
+                                if (r === 0 && c === 0) continue;
+                                skippedCells.add(`${rIdx + r},${cIdx + c}`);
+                              }
+                            }
+                            const isHighlighted = item.tableHighlights?.[rIdx]?.[cIdx];
+                            const align = item.tableAlignments?.[rIdx]?.[cIdx] || (colSpan > 1 ? 'center' : 'left');
+                            const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
+                            return (
+                              <td key={cIdx} colSpan={colSpan} rowSpan={rowSpan} className={`border border-slate-400 p-2 whitespace-pre-line break-words ${isHighlighted ? 'bg-blue-50 font-bold text-slate-900 border-blue-300' : 'bg-white text-slate-800'} ${alignClass}`}>
+                                {cell}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+  }
+                      const resetActiveTabParishData = async () => {
     const today = new Date().getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
     if (![3, 4, 5, 6].includes(today)) {
       alert("초기화는 수요일, 목요일, 금요일, 토요일에만 가능합니다.");
@@ -1660,7 +1830,13 @@ export default function App() {
       updateParishStats();
       alert("데이터가 성공적으로 초기화되었습니다.");
     }
-  };   churches.forEach(c => {
+  };
+
+  const getParishData = (jsonFormat: 'flat' | 'tree' = 'flat') => {
+    const parishData: Record<string, any> = {};
+    const churches = PARISH_CHURCH_MAP[parish] || [];
+    
+    churches.forEach(c => {
       let dataToUse: ReportItem[] = [];
       
       // 현재 선택된 교회는 입력 중인 최신 상태(reportData)를 사용
@@ -1747,11 +1923,28 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-2 sm:p-4 md:p-6 font-sans text-slate-800 flex flex-col">
-      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto mb-4 flex gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x whitespace-nowrap">
-         <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
-         <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
-         <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
-         <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide snap-x whitespace-nowrap">
+           <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
+           <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
+           <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
+           <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+        </div>
+        
+        <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
+          <span className={`transition-colors ${isLocalMode ? 'text-slate-400 font-medium' : 'text-blue-600 font-extrabold'}`}>☁️ 클라우드</span>
+          <button 
+            onClick={() => {
+              const nextMode = !isLocalMode;
+              setIsLocalMode(nextMode);
+              localStorage.setItem('IS_LOCAL_MODE', nextMode ? 'true' : 'false');
+            }} 
+            className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer outline-none relative ${isLocalMode ? 'bg-indigo-600' : 'bg-blue-500'}`}
+          >
+            <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow ${isLocalMode ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+          <span className={`transition-colors ${isLocalMode ? 'text-indigo-600 font-extrabold' : 'text-slate-400 font-medium'}`}>🏠 로컬 단독</span>
+        </div>
       </div>
 
       {activeTab === 'notice' && (
@@ -2031,7 +2224,13 @@ export default function App() {
                           className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
                           placeholder="대항목 제목 입력 (붙여넣기로 표 생성 가능)"
                         />
-                        <div className="opacity-0 group-hover:opacity-100 flex items-center transition-opacity shrink-0 gap-1">
+                        <div className="flex items-center shrink-0 gap-1 opacity-70 hover:opacity-100 transition-opacity bg-white/50 px-1 py-0.5 rounded">
+                          <button onClick={() => moveL0Block(index, 'up')} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="위로 이동">
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => moveL0Block(index, 'down')} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="아래로 이동">
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
                           <button onClick={() => addEmptyTable(item.id)} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="표 삽입">
                             <TableIcon className="w-4 h-4" />
                           </button>
@@ -2550,13 +2749,14 @@ export default function App() {
               </div>
             </div>
             <div className="text-xl font-black text-blue-700 mb-6 drop-shadow-sm">
-              {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `1. ${getDisplayChurch(church)}`}
+              {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
             </div>
           </div>
           <div className="flex-1 font-serif text-slate-900">
             {renderPreviewLines()}
           </div>
         </div>
+      </div>
       </div>
       )}
 
@@ -2604,7 +2804,7 @@ export default function App() {
                             <BookOpen className="w-5 h-5 text-blue-600" /> {churchName}
                           </h4>
                           <div className="space-y-4 pl-2 border-l-2 border-blue-200">
-                            {corrs.map((corr) => (
+                            {(corrs as any[]).map((corr: any) => (
                               <div key={`${corr.church}-${corr.id}`} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
                                 <div className="p-3 border-b border-slate-100 flex gap-4">
                                   <div className="flex-1">

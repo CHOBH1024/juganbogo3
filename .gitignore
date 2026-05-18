@@ -6,3 +6,16 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local mode server storage
+local_db/
+uploads/
+
+# Backups and temp files
+perfect.tsx
+perfect2.tsx
+perfect3.tsx
+old.tsx
+renderPreviewLines.tsx
+missing.txt
+test.js
