@@ -1,4 +1,4 @@
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const appUrl = process.env.APP_URL || `https://${req.headers.host}`;
   res.json({
@@ -10,4 +10,4 @@ export default function handler(req, res) {
     callbackUrl: `${appUrl}/api/google-auth/callback`,
     authUrl: `${appUrl}/api/google-auth`,
   });
-}
+};
