@@ -58,13 +58,22 @@ const saveDbData = async (id: string, payload: any) => {
     return;
   }
 
-  if (!supabase) return;
-  try {
-    const jsonString = JSON.stringify(payload);
-    await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
-  } catch(e) {
-    console.error("Storage DB save failed:", e);
+  // 클라우드 모드: Supabase 저장 + Google Drive 업로드
+  if (supabase) {
+    try {
+      const jsonString = JSON.stringify(payload);
+      await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
+    } catch(e) {
+      console.error("Storage DB save failed:", e);
+    }
   }
+
+  // Vercel 서버리스 함수로 Drive 업로드 (비동기 — 실패해도 무시)
+  fetch('/api/save-drive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, payload })
+  }).catch(() => {});
 };
 
 
@@ -277,8 +286,11 @@ export default function App() {
   const checkDriveStatus = async () => {
     setDriveStatusLoading(true);
     try {
-      const serverUrl = getLocalServerUrl();
-      const res = await fetch(`${serverUrl}/api/google-auth/status`);
+      const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
+      const url = isLocal
+        ? `${getLocalServerUrl()}/api/google-auth/status`
+        : '/api/google-auth/status';
+      const res = await fetch(url);
       if (res.ok) setDriveStatus(await res.json());
     } catch {
       setDriveStatus(null);
