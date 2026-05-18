@@ -2196,28 +2196,7 @@ const renderPreviewLines = () => {
             </div>
           </div>
 
-          <div className="text-xs text-slate-500 mb-4 bg-slate-50 p-2.5 rounded-md border border-slate-100 flex flex-wrap gap-x-4 gap-y-1">
-            <span><kbd className="font-mono text-slate-700 bg-white border border-slate-200 px-1 py-0.5 rounded shadow-sm">Tab</kbd> 들여쓰기</span>
-            <span><kbd className="font-mono text-slate-700 bg-white border border-slate-200 px-1 py-0.5 rounded shadow-sm">Shift+Tab</kbd> 내어쓰기</span>
-            <span><kbd className="font-mono text-slate-700 bg-white border border-slate-200 px-1 py-0.5 rounded shadow-sm">Enter</kbd> 항목 추가</span>
-            <span><kbd className="font-mono text-slate-700 bg-white border border-slate-200 px-1 py-0.5 rounded shadow-sm">↑/↓</kbd> 이동</span>
-          </div>
 
-          <details className="bg-indigo-50 border border-indigo-100 p-3 rounded-lg text-sm text-indigo-900 mb-4 shadow-sm group">
-            <summary className="font-bold flex items-center gap-1.5 text-indigo-700 cursor-pointer list-none select-none">
-              <Check className="w-4 h-4" /> 작성 예시 (형식 참고용) - 클릭하여 펼치기
-            </summary>
-            <div className="space-y-1.5 ml-1 mt-3 pt-3 border-t border-indigo-100">
-              <p>1. 00교구 000선교회 집회 <span className="text-indigo-500 text-[11px] ml-2 font-medium bg-white px-2 py-0.5 rounded shadow-sm">1단계</span></p>
-              <p className="ml-5">1) 일시: 2026년 00월 00일 0요일 오전 10시 <span className="text-indigo-500 text-[11px] ml-2 font-medium bg-white px-2 py-0.5 rounded shadow-sm">2단계</span></p>
-              <p className="ml-5">2) 장소: 00교회 대성전</p>
-              <p className="ml-5">3) 참석인원: 60명 (선교사 50명, 교구 공직자 6명, 청년스텝 4명)</p>
-              <p className="ml-5">4) 내용: 000 교구장 환영사, 특강, 000 원장 격려사, 화동 프로그램</p>
-              <div className="ml-5 flex items-center gap-2">
-                5) 대표사진: <span className="text-indigo-500 text-xs ml-1 flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5"/>(우측 사진 아이콘을 클릭하여 첨부)</span>
-              </div>
-            </div>
-          </details>
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-2 pb-4">
             {(() => {
@@ -2702,6 +2681,15 @@ const renderPreviewLines = () => {
           </div>
           
           <div className="pt-4 border-t border-slate-200 mt-auto shrink-0 space-y-2">
+            <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1">
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Tab</kbd>들여쓰기</span>
+              <span className="text-slate-200">|</span>
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Shift+Tab</kbd>내어쓰기</span>
+              <span className="text-slate-200">|</span>
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Enter</kbd>항목 추가</span>
+              <span className="text-slate-200">|</span>
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">↑/↓</kbd>이동</span>
+            </div>
             <div className="flex items-center justify-between px-1 pb-1">
               <span className="text-xs text-slate-500 font-medium flex items-center">
                 {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5 text-blue-500" />}
@@ -3048,6 +3036,22 @@ const renderPreviewLines = () => {
                   AI 정리 및 워드 내보내기
                 </h3>
                 <p className="text-sm mb-2">하단의 <span className="font-semibold text-purple-700"><Bot className="w-4 h-4 inline mr-1" />AI 문맥 검토</span> 버튼을 눌러 오탈자를 점검하고, 우측 하단 <span className="font-semibold text-blue-700"><Download className="w-4 h-4 inline mr-1"/>Word로 다운로드</span> 버튼으로 깨끗하게 <code>.docx</code> 파일로 출력하세요.</p>
+              </section>
+
+              <section className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg">
+                <h3 className="font-bold text-base text-indigo-900 pb-2 mb-3 border-b border-indigo-200 flex items-center gap-2">
+                  <Check className="w-4 h-4 text-indigo-700" /> 주간보고 작성 표준 예시 (개조식)
+                </h3>
+                <div className="space-y-2 text-xs text-indigo-950 leading-relaxed font-medium">
+                  <p>1. 00교구 000선교회 집회 <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold ml-2">1단계 (L0)</span></p>
+                  <p className="ml-5">1) 일시: 2026년 00월 00일 0요일 오전 10시 <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold ml-2">2단계 (L1)</span></p>
+                  <p className="ml-5">2) 장소: 00교회 대성전</p>
+                  <p className="ml-5">3) 참석인원: 60명 (선교사 50명, 교구 공직자 6명, 청년스텝 4명)</p>
+                  <p className="ml-5">4) 내용: 000 교구장 환영사, 특강, 000 원장 격려사, 화동 프로그램</p>
+                  <div className="ml-5 flex items-center gap-2">
+                    5) 대표사진: <span className="text-indigo-700 text-xs flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5"/> (우측 사진 아이콘을 클릭하여 첨부)</span>
+                  </div>
+                </div>
               </section>
 
             </div>
