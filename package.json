@@ -10,7 +10,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "pm2:setup": "npm install -g pm2 pm2-windows-startup && pm2-startup install",
+    "pm2:start": "pm2 start server.js --name \"juganbogo-local\" && pm2 save",
+    "pm2:stop": "pm2 stop juganbogo-local",
+    "pm2:restart": "pm2 restart juganbogo-local",
+    "pm2:status": "pm2 status",
+    "pm2:logs": "pm2 logs juganbogo-local"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
