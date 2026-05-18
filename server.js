@@ -167,6 +167,20 @@ app.post('/api/ollama-chat', async (req, res) => {
   }
 });
 
+// 5. Statically serve the React build (for high-performance single-port local production)
+const DIST_DIR = path.join(__dirname, 'dist');
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.get('*', (req, res, next) => {
+    // API and uploads routes should bypass index.html static serving
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      return next();
+    }
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+  console.log(`[Static] Serving React production build from ./dist`);
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`=================================================`);
   console.log(`🏠 Weekly Report Local Server is running on:`);
