@@ -1,6 +1,6 @@
-const { google } = require('googleapis');
+import { google } from 'googleapis';
 
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const appUrl = process.env.APP_URL || `https://${req.headers.host}`;
@@ -24,4 +24,4 @@ module.exports = function handler(req, res) {
     scope: ['https://www.googleapis.com/auth/drive.file'],
   });
   res.redirect(authUrl);
-};
+}
