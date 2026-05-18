@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>주간보고 AI 검토</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #f1f5f9; color: #1e293b; min-height: 100vh; }
+  header { background: #1e3a8a; color: #fff; padding: 20px 32px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 20px; font-weight: 700; }
+  header span { font-size: 13px; color: #93c5fd; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+  .toolbar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background .15s; }
+  .btn-primary { background: #1d4ed8; color: #fff; }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-success { background: #16a34a; color: #fff; }
+  .btn-success:hover { background: #15803d; }
+  .btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .status-badge { padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+  .badge-submitted { background: #dcfce7; color: #16a34a; }
+  .badge-draft { background: #fef3c7; color: #92400e; }
+
+  .loading { text-align: center; padding: 60px; color: #64748b; font-size: 15px; }
+  .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px; color: #dc2626; margin-bottom: 16px; }
+
+  .parish-card { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 20px; overflow: hidden; }
+  .parish-header { background: #eff6ff; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #bfdbfe; }
+  .parish-header h2 { font-size: 16px; color: #1e3a8a; }
+  .parish-actions { display: flex; gap: 8px; align-items: center; }
+  .parish-count { font-size: 12px; color: #64748b; }
+
+  .church-list { padding: 0; }
+  .church-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #f1f5f9; }
+  .church-row:last-child { border-bottom: none; }
+  .church-name { font-size: 14px; font-weight: 600; min-width: 130px; padding-top: 2px; }
+  .church-content { flex: 1; font-size: 13px; color: #475569; line-height: 1.7; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+  .church-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 90px; }
+
+  .correction-panel { background: #fffbeb; border-top: 2px solid #fde68a; padding: 16px 20px; }
+  .correction-panel h3 { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 12px; }
+  .correction-item { background: #fff; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 13px; }
+  .correction-item .label { font-size: 11px; color: #92400e; font-weight: 700; margin-bottom: 4px; }
+  .correction-item .orig { color: #dc2626; text-decoration: line-through; }
+  .correction-item .corr { color: #16a34a; }
+  .correction-item .reason { color: #64748b; font-size: 12px; margin-top: 4px; }
+
+  .summary-bar { background: #fff; border-radius: 10px; padding: 14px 20px; margin-bottom: 20px; display: flex; gap: 24px; flex-wrap: wrap; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .stat { text-align: center; }
+  .stat-num { font-size: 24px; font-weight: 900; color: #1d4ed8; }
+  .stat-label { font-size: 12px; color: #64748b; }
+
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>📋 주간보고 AI 검토 시스템</h1>
+    <span>Google Drive 연동 · Gemini AI 검토 · Word 다운로드</span>
+  </div>
+</header>
+
+<div class="container">
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="loadReports()">🔄 Drive에서 불러오기</button>
+    <button class="btn btn-primary" id="btnReviewAll" onclick="reviewAll()" disabled>✨ 전체 AI 검토</button>
+    <span id="loadStatus" style="font-size:13px;color:#64748b"></span>
+  </div>
+
+  <div id="summaryBar" style="display:none" class="summary-bar">
+    <div class="stat"><div class="stat-num" id="statParish">0</div><div class="stat-label">교구/협회</div></div>
+    <div class="stat"><div class="stat-num" id="statSubmitted">0</div><div class="stat-label">제출 완료</div></div>
+    <div class="stat"><div class="stat-num" id="statDraft">0</div><div class="stat-label">임시저장</div></div>
+  </div>
+
+  <div id="content"><div class="loading">Drive에서 불러오기 버튼을 클릭하세요.</div></div>
+</div>
+
+<script>
+let allData = [];
+let allCorrections = [];
+
+async function loadReports() {
+  const content = document.getElementById('content');
+  const status = document.getElementById('loadStatus');
+  content.innerHTML = '<div class="loading"><span class="spinner"></span> Drive에서 불러오는 중...</div>';
+  status.textContent = '';
+  document.getElementById('btnReviewAll').disabled = true;
+  document.getElementById('summaryBar').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/reports');
+    if (!res.ok) throw new Error(await res.text());
+    const { parishes } = await res.json();
+    allData = parishes;
+    allCorrections = [];
+
+    if (!parishes.length) {
+      content.innerHTML = '<div class="loading">Drive에 보고서가 없습니다. 교회에서 보고서를 제출하면 여기에 표시됩니다.</div>';
+      return;
+    }
+
+    // 통계
+    let submitted = 0, draft = 0;
+    parishes.forEach(p => p.churches.forEach(c => c.status === 'submitted' ? submitted++ : draft++));
+    document.getElementById('statParish').textContent = parishes.length;
+    document.getElementById('statSubmitted').textContent = submitted;
+    document.getElementById('statDraft').textContent = draft;
+    document.getElementById('summaryBar').style.display = 'flex';
+    document.getElementById('btnReviewAll').disabled = submitted === 0;
+    status.textContent = `총 ${parishes.length}개 교구/협회 · ${submitted}개 제출완료`;
+
+    renderParishes(parishes);
+  } catch (err) {
+    content.innerHTML = `<div class="error-box">⚠️ ${err.message}</div>`;
+  }
+}
+
+function getTextPreview(payload) {
+  if (!payload?.data) return '(내용 없음)';
+  return payload.data.map(item => ('  '.repeat(item.level)) + (item.text || '')).filter(t => t.trim()).slice(0, 8).join('\n');
+}
+
+function renderParishes(parishes) {
+  const content = document.getElementById('content');
+  content.innerHTML = parishes.map((p, pi) => {
+    const submitted = p.churches.filter(c => c.status === 'submitted').length;
+    return `
+    <div class="parish-card" id="parish-${pi}">
+      <div class="parish-header">
+        <h2>${p.parish}${p.folder !== p.parish ? ' · ' + p.folder : ''}</h2>
+        <div class="parish-actions">
+          <span class="parish-count">제출 ${submitted}/${p.churches.length}</span>
+          <button class="btn btn-primary btn-sm" onclick="reviewParish(${pi})">✨ AI 검토</button>
+          <button class="btn btn-success btn-sm" onclick="downloadWord(${pi})" ${submitted===0?'disabled':''}>⬇ Word 다운로드</button>
+        </div>
+      </div>
+      <div class="church-list">
+        ${p.churches.map((c, ci) => `
+        <div class="church-row" id="church-${pi}-${ci}">
+          <div class="church-name">${c.church}</div>
+          <div class="church-content">${escHtml(getTextPreview(c.payload))}</div>
+          <div class="church-meta">
+            <span class="status-badge ${c.status==='submitted'?'badge-submitted':'badge-draft'}">${c.status==='submitted'?'제출완료':'임시저장'}</span>
+          </div>
+        </div>`).join('')}
+      </div>
+      <div class="correction-panel" id="corrections-${pi}" style="display:none"></div>
+    </div>`;
+  }).join('');
+}
+
+async function reviewParish(pi) {
+  const parish = allData[pi];
+  const btn = document.querySelector(`#parish-${pi} .btn-primary`);
+  btn.innerHTML = '<span class="spinner"></span>검토 중...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/ai-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parishes: [parish] }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const { corrections } = await res.json();
+
+    // 전체 corrections에 병합
+    allCorrections = allCorrections.filter(c => c.parish !== parish.parish);
+    allCorrections.push(...corrections);
+
+    showCorrections(pi, corrections, parish.parish);
+  } catch (err) {
+    alert('AI 검토 실패: ' + err.message);
+  } finally {
+    btn.innerHTML = '✨ AI 검토';
+    btn.disabled = false;
+  }
+}
+
+async function reviewAll() {
+  const btn = document.getElementById('btnReviewAll');
+  btn.innerHTML = '<span class="spinner"></span>전체 검토 중...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/ai-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parishes: allData }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const { corrections } = await res.json();
+    allCorrections = corrections;
+
+    // 교구별로 분류해서 표시
+    allData.forEach((p, pi) => {
+      const pCorrections = corrections.filter(c => c.parish === p.parish || c.parish === p.folder);
+      if (pCorrections.length) showCorrections(pi, pCorrections, p.parish);
+    });
+  } catch (err) {
+    alert('AI 검토 실패: ' + err.message);
+  } finally {
+    btn.innerHTML = '✨ 전체 AI 검토';
+    btn.disabled = false;
+  }
+}
+
+function showCorrections(pi, corrections, parishName) {
+  const panel = document.getElementById(`corrections-${pi}`);
+  const changed = corrections.filter(c => c.original !== c.corrected);
+
+  if (!changed.length) {
+    panel.innerHTML = '<h3>✅ 교정할 내용이 없습니다.</h3>';
+    panel.style.display = 'block';
+    return;
+  }
+
+  panel.innerHTML = `
+    <h3>✏️ AI 교정 결과 (${changed.length}건)</h3>
+    ${changed.map(c => `
+    <div class="correction-item">
+      <div class="label">${c.church || ''}</div>
+      <div class="orig">❌ ${escHtml(c.original)}</div>
+      <div class="corr">✅ ${escHtml(c.corrected)}</div>
+      ${c.reason ? `<div class="reason">💬 ${escHtml(c.reason)}</div>` : ''}
+    </div>`).join('')}
+  `;
+  panel.style.display = 'block';
+}
+
+async function downloadWord(pi) {
+  const parish = allData[pi];
+  const btn = document.querySelector(`#parish-${pi} .btn-success`);
+  btn.innerHTML = '<span class="spinner"></span>생성 중...';
+  btn.disabled = true;
+
+  try {
+    const corrections = allCorrections.filter(c => c.parish === parish.parish || c.parish === parish.folder);
+    const res = await fetch('/api/download-word', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parishData: parish, corrections }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${parish.parish}_주간보고_${new Date().toISOString().slice(0,10)}.docx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('다운로드 실패: ' + err.message);
+  } finally {
+    btn.innerHTML = '⬇ Word 다운로드';
+    btn.disabled = false;
+  }
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
