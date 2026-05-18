@@ -659,23 +659,47 @@ app.post('/api/ollama-chat', async (req, res) => {
 
 // ─── Google Drive OAuth2 설정 엔드포인트 ────────────────────────────────────
 
-// GET /api/google-auth/status  → 현재 Drive 연동 상태 확인
+// GET /api/google-auth/status  → 현재 Drive 연동 상태 + 설정에 필요한 URL 반환
 app.get('/api/google-auth/status', (req, res) => {
+  const callbackUrl = `${APP_URL}/api/google-auth/callback`;
+  const authUrl = `${APP_URL}/api/google-auth`;
   res.json({
     configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
     authenticated: !!driveClient,
     hasRefreshToken: !!GOOGLE_REFRESH_TOKEN,
-    folderId: GOOGLE_DRIVE_FOLDER_ID || null
+    folderId: GOOGLE_DRIVE_FOLDER_ID || null,
+    appUrl: APP_URL,
+    callbackUrl,
+    authUrl,
   });
 });
 
 // GET /api/google-auth  → Google OAuth 동의 화면으로 이동 (최초 1회 인증)
 app.get('/api/google-auth', (req, res) => {
   if (!oauth2Client) {
-    return res.status(400).send(`
-      <h2>Google Client 정보 미설정</h2>
-      <p><code>.env</code> 파일에 <b>GOOGLE_CLIENT_ID</b> 와 <b>GOOGLE_CLIENT_SECRET</b> 을 먼저 설정하고 서버를 재시작하세요.</p>
-    `);
+    return res.status(400).send(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+      <title>설정 필요</title>
+      <style>
+        body{font-family:'Pretendard',sans-serif;max-width:640px;margin:60px auto;padding:24px;color:#1e293b}
+        .card{background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:24px;margin-bottom:16px}
+        .step{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:8px 0}
+        code{background:#f1f5f9;padding:3px 8px;border-radius:4px;font-family:monospace;font-size:13px;word-break:break-all}
+        h2{color:#dc2626} h3{color:#475569;font-size:14px;margin:0 0 8px}
+        p{font-size:14px;line-height:1.6;margin:6px 0}
+      </style></head><body>
+      <h2>⚠️ Google Cloud 인증 정보 미설정</h2>
+      <div class="card">
+        <p>Google AI Studio의 <strong>Secrets 패널</strong>에 아래 두 값을 먼저 등록하세요.</p>
+      </div>
+      <div class="step"><h3>등록해야 할 Secret 이름</h3>
+        <p><code>GOOGLE_CLIENT_ID</code> — Google Cloud OAuth 클라이언트 ID</p>
+        <p><code>GOOGLE_CLIENT_SECRET</code> — Google Cloud OAuth 클라이언트 보안 비밀번호</p>
+      </div>
+      <div class="step"><h3>등록 위치</h3>
+        <p>Google AI Studio → 앱 편집기 우측 상단 <strong>Secrets</strong> 탭 → + 추가</p>
+      </div>
+      <p style="margin-top:20px;font-size:13px;color:#64748b">Secret 등록 후 앱을 재배포하고 다시 이 주소를 열어주세요.</p>
+      </body></html>`);
   }
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -696,25 +720,45 @@ app.get('/api/google-auth/callback', async (req, res) => {
     oauth2Client.setCredentials(tokens);
     driveClient = google.drive({ version: 'v3', auth: oauth2Client });
 
-    const refreshToken = tokens.refresh_token || '(이미 발급된 토큰 재사용 — 아래 토큰을 .env에 저장하세요)';
-    res.send(`
-      <!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+    const refreshToken = tokens.refresh_token;
+    res.send(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
       <title>Google Drive 연동 완료</title>
-      <style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:20px}
-      code{background:#f4f4f4;padding:4px 8px;border-radius:4px;word-break:break-all}
-      .box{background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:20px;margin:20px 0}</style>
-      </head><body>
-      <h2>✅ Google Drive 연동 완료!</h2>
-      <div class="box">
-        <p><b>아래 REFRESH_TOKEN을 복사해서 <code>.env</code> 파일에 붙여넣으세요:</b></p>
-        <p><code>GOOGLE_REFRESH_TOKEN=${refreshToken}</code></p>
+      <style>
+        body{font-family:'Pretendard',sans-serif;max-width:680px;margin:60px auto;padding:24px;color:#1e293b}
+        h2{color:#16a34a;margin-bottom:8px}
+        .green{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;margin:16px 0}
+        .blue{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin:16px 0}
+        .step{display:flex;gap:12px;align-items:flex-start;margin:10px 0}
+        .num{width:24px;height:24px;border-radius:50%;background:#6366f1;color:#fff;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+        code{background:#f1f5f9;padding:4px 10px;border-radius:6px;font-family:monospace;font-size:13px;word-break:break-all;display:block;margin-top:6px}
+        button{background:#6366f1;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px}
+        button:hover{background:#4f46e5}
+        p{font-size:14px;line-height:1.7;margin:4px 0}
+        .warn{color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;margin-top:8px}
+      </style></head><body>
+      <h2>✅ Google 계정 인증 완료!</h2>
+      <p style="color:#475569">이제 아래 Refresh Token을 Google AI Studio Secrets에 등록해야 자동 업로드가 작동합니다.</p>
+
+      <div class="green">
+        <p><strong>📋 복사할 Refresh Token</strong></p>
+        ${refreshToken
+          ? `<code id="token">${refreshToken}</code>
+             <button onclick="navigator.clipboard.writeText('${refreshToken}').then(()=>this.textContent='✅ 복사됨!')">클립보드 복사</button>`
+          : `<p class="warn">⚠️ Refresh Token이 발급되지 않았습니다. <br>이미 이 계정으로 인증한 적이 있으면 <a href="/api/google-auth">여기서 다시 인증</a>하세요 (consent 화면에서 계정 재선택).</p>`
+        }
       </div>
-      <p>저장 후 서버를 재시작하면 보고서 제출 시 자동으로 Google Drive에 업로드됩니다.</p>
-      <hr>
-      <p>Drive 특정 폴더에 저장하려면 폴더 ID도 추가하세요:<br>
-      <code>GOOGLE_DRIVE_FOLDER_ID=&lt;Drive 폴더 URL의 마지막 ID&gt;</code></p>
-      </body></html>
-    `);
+
+      <div class="blue">
+        <p><strong>📌 AI Studio Secrets에 등록하는 방법</strong></p>
+        <div class="step"><div class="num">1</div><p>Google AI Studio → 현재 앱 편집기 열기</p></div>
+        <div class="step"><div class="num">2</div><p>우측 상단 <strong>Secrets</strong> 탭 클릭</p></div>
+        <div class="step"><div class="num">3</div><p>이름: <code>GOOGLE_REFRESH_TOKEN</code><br>값: 위 토큰 붙여넣기 → 저장</p></div>
+        <div class="step"><div class="num">4</div><p>(선택) 업로드할 Drive 폴더 ID가 있으면:<br><code>GOOGLE_DRIVE_FOLDER_ID</code> 도 함께 등록</p></div>
+        <div class="step"><div class="num">5</div><p>앱 <strong>재배포</strong> → 관리자 콘솔에서 연동 상태 🟢 확인</p></div>
+      </div>
+
+      <p style="font-size:13px;color:#94a3b8;margin-top:16px">이 창은 닫아도 됩니다.</p>
+      </body></html>`);
   } catch (err) {
     console.error('[GoogleDrive] Token exchange failed:', err);
     res.status(500).send(`<h2>토큰 교환 실패</h2><pre>${err.message}</pre>`);
