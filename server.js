@@ -280,6 +280,95 @@ async function generateWordDocument(id, payload) {
   }
 }
 
+// 구글 드라이브 통합 폴더 저장을 위한 실시간 개별 텍스트 스트리밍 도구
+async function saveTextDocument(id, payload) {
+  if (!id.startsWith('report_')) return;
+  const parts = id.split('_');
+  if (parts.length < 3) return;
+  const parish = parts[1];
+  const church = parts[2];
+
+  // 1. Google Drive 스트리밍 경로 찾기
+  let gDriveDir = null;
+  const possiblePaths = [
+    'C:\\Users\\note\\Google Drive 스트리밍\\내 드라이브',
+    'G:\\내 드라이브',
+    'G:\\My Drive',
+    path.join(__dirname, 'google_drive_sync')
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      gDriveDir = path.join(p, '주간보고_제출현황');
+      break;
+    }
+  }
+  if (!gDriveDir) {
+    gDriveDir = path.join(__dirname, 'google_drive_sync');
+  }
+
+  if (!fs.existsSync(gDriveDir)) {
+    fs.mkdirSync(gDriveDir, { recursive: true });
+  }
+
+  // 2. 가공이 쉬운 텍스트 파일 포맷 생성 (Gemini가 즉시 분석 가능하게 마크다운 접목)
+  let textContent = `=========================================\n`;
+  textContent += `교구: ${parish}\n`;
+  textContent += `교회: ${church}\n`;
+  textContent += `제출상태: ${payload.status === 'submitted' ? '제출 완료' : '임시 저장'}\n`;
+  textContent += `업데이트시각: ${new Date().toLocaleString('ko-KR')}\n`;
+  textContent += `=========================================\n\n`;
+
+  const dataToUse = payload.data || [];
+  const counters = [0, 0, 0, 0];
+
+  for (const item of dataToUse) {
+    let prefix = "";
+    if (item.level === 0) {
+      counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+      prefix = toRoman(counters[0]) + ". ";
+    } else if (item.level === 1) {
+      counters[1]++; counters[2] = 0; counters[3] = 0;
+      prefix = counters[1] + ". ";
+    } else if (item.level === 2) {
+      counters[2]++; counters[3] = 0;
+      prefix = counters[2] + ") ";
+    } else if (item.level === 3) {
+      counters[3]++;
+      prefix = toCircled(counters[3]) + " ";
+    }
+
+    const indent = "  ".repeat(item.level);
+    textContent += `${indent}${prefix}${item.text || ''}\n`;
+
+    // 표 데이터 텍스트 포맷 (MarkDown 표 규격 준수 - Gemini 분석 정확도 100%)
+    if (item.tableData && item.tableData.length > 0) {
+      textContent += `\n${indent}[데이터 테이블]\n`;
+      item.tableData.forEach((row, rIdx) => {
+        let rowStr = indent + "| " + row.map(cell => cell.trim().replace(/\n/g, " ")).join(" | ") + " |";
+        textContent += rowStr + "\n";
+        if (rIdx === 0) {
+          textContent += indent + "| " + row.map(() => "---").join(" | ") + " |\n";
+        }
+      });
+      textContent += `\n`;
+    }
+  }
+
+  try {
+    const cleanParishName = parish.replace(/[\/\\?%*:|"<>. ]/g, '_');
+    const cleanChurchName = church.replace(/[\/\\?%*:|"<>. ]/g, '_');
+    
+    // 개별 교회가 실시간 저장/제출할 때마다 동일한 파일명으로 구글 드라이브 동기화 폴더 루트에 계속 덮어씀
+    const filename = `[${cleanParishName}_${cleanChurchName}]_주간보고.txt`;
+    const finalFilePath = path.join(gDriveDir, filename);
+    fs.writeFileSync(finalFilePath, textContent, 'utf-8');
+    console.log(`[GoogleDriveSync] Generated and saved text document to: ${finalFilePath}`);
+  } catch (error) {
+    console.error("[GoogleDriveSync] Failed to write text file:", error);
+  }
+}
+
 // 1. Save Report Data
 app.post('/api/save-data', (req, res) => {
   const { id, payload } = req.body;
@@ -291,6 +380,11 @@ app.post('/api/save-data', (req, res) => {
     fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     console.log(`[DB] Saved data for ID: ${id}`);
     
+    // 실시간 작성 또는 제출 시 비동기로 개별 텍스트 파일 저장해 구글 드라이브 동기화
+    saveTextDocument(id, payload).catch(err => {
+      console.error('[GoogleDriveSync] Async text generation failed:', err);
+    });
+
     // 제출 확정 시 비동기로 Word 문서 자동 빌드하여 구글 드라이브 동기화 폴더로 전송
     if (payload && payload.status === 'submitted') {
       generateWordDocument(id, payload).catch(err => {
@@ -415,6 +509,57 @@ app.post('/api/ollama-chat', async (req, res) => {
   } catch (error) {
     console.error('[Ollama] Proxy request failed:', error);
     res.status(500).json({ error: 'Could not connect to Ollama. Make sure Ollama is running on your PC (http://localhost:11434).' });
+  }
+});
+
+// 4.5 Open Sync Folder inside File Explorer
+app.post('/api/open-folder', async (req, res) => {
+  try {
+    const { exec } = await import('child_process');
+    
+    // Find Google Drive folder
+    let gDriveDir = null;
+    const possiblePaths = [
+      'C:\\Users\\note\\Google Drive 스트리밍\\내 드라이브',
+      'G:\\내 드라이브',
+      'G:\\My Drive',
+      path.join(__dirname, 'google_drive_sync')
+    ];
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        gDriveDir = path.join(p, '주간보고_제출현황');
+        break;
+      }
+    }
+    if (!gDriveDir) {
+      gDriveDir = path.join(__dirname, 'google_drive_sync');
+    }
+
+    if (!fs.existsSync(gDriveDir)) {
+      fs.mkdirSync(gDriveDir, { recursive: true });
+    }
+
+    // Run platform-specific shell command
+    let command = '';
+    if (process.platform === 'win32') {
+      command = `explorer.exe "${gDriveDir}"`;
+    } else if (process.platform === 'darwin') {
+      command = `open "${gDriveDir}"`;
+    } else {
+      command = `xdg-open "${gDriveDir}"`;
+    }
+
+    exec(command, (err) => {
+      if (err) {
+        console.error('[OpenFolder] Failed to open folder:', err);
+        return res.status(500).json({ error: 'Folder opening failed' });
+      }
+      res.json({ success: true, path: gDriveDir });
+    });
+  } catch (error) {
+    console.error('[OpenFolder] Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

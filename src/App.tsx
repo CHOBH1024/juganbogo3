@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -3403,7 +3403,7 @@ const renderPreviewLines = () => {
               </div>
 
               {/* Action Buttons Container */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
                 <button
                   disabled={isAdminCheckingAI}
                   onClick={startAdminAiReview}
@@ -3414,7 +3414,7 @@ const renderPreviewLines = () => {
                     <Bot className={`w-5 h-5 ${isAdminCheckingAI ? 'animate-spin' : 'animate-bounce'}`} />
                     <span className="text-base">전체 취합 AI 일괄 검토 시작</span>
                   </div>
-                  <span className="text-[10px] text-purple-200 font-medium font-sans">실시간 데이터 100% 취합 + AI 문맥·오타 완벽 교정</span>
+                  <span className="text-[10px] text-purple-200 font-medium font-sans text-center">실시간 데이터 100% 취합 + AI 문맥·오타 완벽 교정</span>
                 </button>
 
                 <button
@@ -3427,7 +3427,32 @@ const renderPreviewLines = () => {
                     <Download className="w-5 h-5" />
                     <span className="text-base">통합 마스터 워드(.docx) 다운로드</span>
                   </div>
-                  <span className="text-[10px] text-blue-200 font-medium font-sans">전국 모든 교구 + 협회 업무보고서 A4 한 권으로 즉시 출력</span>
+                  <span className="text-[10px] text-blue-200 font-medium font-sans text-center">전국 모든 교구 + 협회 업무보고서 A4 한 권으로 즉시 출력</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      const serverUrl = getLocalServerUrl();
+                      const res = await fetch(`${serverUrl}/api/open-folder`, { method: 'POST' });
+                      if (res.ok) {
+                        const data = await res.json();
+                        alert(`📂 구글 드라이브 동기화 폴더가 성공적으로 열렸습니다!\n경로: ${data.path}`);
+                      } else {
+                        alert("로컬 서버가 실행되지 않았거나 폴더를 열 수 없습니다.\n로컬 서버 구동 상태를 확인해 주세요.");
+                      }
+                    } catch (e) {
+                      alert("로컬 서버 연결에 실패했습니다.\n로컬 서버를 먼저 실행해 주세요.");
+                    }
+                  }}
+                  className="relative overflow-hidden group bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98]"
+                >
+                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-5 h-5" />
+                    <span className="text-base">구글 드라이브 폴더 열기</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-200 font-medium font-sans text-center">실시간 개별 저장된 전국 텍스트(.txt) 보고서 즉시 확인</span>
                 </button>
               </div>
 
