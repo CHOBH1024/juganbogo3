@@ -58,13 +58,22 @@ const saveDbData = async (id: string, payload: any) => {
     return;
   }
 
-  if (!supabase) return;
-  try {
-    const jsonString = JSON.stringify(payload);
-    await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
-  } catch(e) {
-    console.error("Storage DB save failed:", e);
+  // 클라우드 모드: Supabase 저장 + Google Drive 업로드
+  if (supabase) {
+    try {
+      const jsonString = JSON.stringify(payload);
+      await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
+    } catch(e) {
+      console.error("Storage DB save failed:", e);
+    }
   }
+
+  // Vercel 서버리스 함수로 Drive 업로드 (비동기 — 실패해도 무시)
+  fetch('/api/save-drive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, payload })
+  }).catch(() => {});
 };
 
 
@@ -252,6 +261,43 @@ export default function App() {
   const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
   const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
+
+  // Google Drive 연동 상태
+  const [driveStatus, setDriveStatus] = useState<{
+    configured: boolean;
+    authenticated: boolean;
+    hasRefreshToken: boolean;
+    folderId: string | null;
+    appUrl?: string;
+    callbackUrl?: string;
+    authUrl?: string;
+  } | null>(null);
+  const [driveStatusLoading, setDriveStatusLoading] = useState(false);
+  const [showAiStudioGuide, setShowAiStudioGuide] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    });
+  };
+
+  const checkDriveStatus = async () => {
+    setDriveStatusLoading(true);
+    try {
+      const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
+      const url = isLocal
+        ? `${getLocalServerUrl()}/api/google-auth/status`
+        : '/api/google-auth/status';
+      const res = await fetch(url);
+      if (res.ok) setDriveStatus(await res.json());
+    } catch {
+      setDriveStatus(null);
+    } finally {
+      setDriveStatusLoading(false);
+    }
+  };
 
   const loadNotices = async () => {
     try {
@@ -495,6 +541,7 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'admin_console') {
       loadAllReportsStatus();
+      checkDriveStatus();
     }
   }, [activeTab, parish, church, status, reportData]);
 
@@ -3400,6 +3447,203 @@ const renderPreviewLines = () => {
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">전국 보고서를 실시간으로 취합하여 일괄 AI 맞춤법 교정 및 마스터 워드 파일로 다운로드합니다.</p>
                 </div>
+              </div>
+
+              {/* ── Google Drive · AI Studio Build 연동 ── */}
+              <div className="mb-5 space-y-3">
+
+                {/* 상태 배너 */}
+                <div className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 border ${
+                  driveStatus?.authenticated
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : driveStatus?.configured
+                    ? 'bg-amber-50 border-amber-200'
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {driveStatusLoading ? (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin shrink-0" />
+                    ) : driveStatus?.authenticated ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    ) : driveStatus?.configured ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className={`text-xs font-black ${driveStatus?.authenticated ? 'text-emerald-700' : driveStatus?.configured ? 'text-amber-700' : 'text-red-700'}`}>
+                        Google Drive:{' '}
+                        {driveStatusLoading
+                          ? '상태 확인 중...'
+                          : driveStatus?.authenticated
+                          ? '✅ 연결됨 — 보고서 제출 시 자동 업로드'
+                          : driveStatus?.configured
+                          ? '⚠️ Refresh Token 미등록 — 아래 3단계 완료 필요'
+                          : '❌ 미연결 — 아래 설정 가이드를 따라주세요'}
+                      </p>
+                      {driveStatus?.appUrl && (
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">앱 URL: {driveStatus.appUrl}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={checkDriveStatus} className="p-1.5 rounded-lg hover:bg-white/60 text-slate-400 transition-colors" title="새로고침">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setShowAiStudioGuide(v => !v)}
+                      className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <Settings className="w-3 h-3" />
+                      {showAiStudioGuide ? '가이드 닫기' : 'Drive 연동 설정 가이드'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* AI Studio Build 전용 설정 가이드 */}
+                {showAiStudioGuide && (
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    {/* 헤더 */}
+                    <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-black text-white flex items-center gap-2">
+                          <Sparkles className="w-4 h-4" /> Google Drive 연동 + AI Studio Build 사용 가이드
+                        </h3>
+                        <p className="text-violet-200 text-[11px] mt-0.5">GitHub 연결된 AI Studio Build 앱 기준 설정 방법</p>
+                      </div>
+                      <button onClick={() => setShowAiStudioGuide(false)} className="p-1 rounded-full hover:bg-white/20 text-white/70 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+
+                      {/* PART A: Drive 연동 설정 (미연결일 때 강조) */}
+                      <div>
+                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">A. Google Drive 연동 설정 (최초 1회)</p>
+                        <div className="space-y-2 text-xs">
+
+                          {/* Step 1 */}
+                          <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                            <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">1</div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black text-slate-800">Google Cloud Console → OAuth 클라이언트 등록</p>
+                              <p className="text-slate-500 mt-1 leading-relaxed">
+                                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline font-bold">console.cloud.google.com</a>
+                                {' '}→ Drive API 활성화 → 사용자 인증 정보 → OAuth 2.0 클라이언트 ID (웹 애플리케이션) 생성
+                              </p>
+                              <p className="text-slate-500 mt-1">승인된 리디렉션 URI에 아래 주소를 추가하세요:</p>
+                              {driveStatus?.callbackUrl ? (
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  <code className="flex-1 bg-indigo-50 border border-indigo-200 text-indigo-800 px-2.5 py-1.5 rounded-lg font-mono text-[11px] break-all">
+                                    {driveStatus.callbackUrl}
+                                  </code>
+                                  <button
+                                    onClick={() => copyToClipboard(driveStatus.callbackUrl!, 'callback')}
+                                    className="shrink-0 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1"
+                                  >
+                                    {copiedField === 'callback' ? <><Check className="w-3 h-3"/>복사됨</> : <><Copy className="w-3 h-3"/>복사</>}
+                                  </button>
+                                </div>
+                              ) : (
+                                <code className="block mt-1.5 bg-slate-100 px-2.5 py-1.5 rounded text-[11px] text-slate-500">{window.location.origin}/api/google-auth/callback</code>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Step 2 */}
+                          <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                            <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">2</div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black text-slate-800">AI Studio Build → Secrets 패널에 등록</p>
+                              <p className="text-slate-500 mt-1 leading-relaxed">Google AI Studio → 앱 편집기 → 우측 상단 <strong className="text-slate-700">Secrets</strong> 탭 → + 추가</p>
+                              <div className="mt-2 space-y-1.5">
+                                {[
+                                  { name: 'GOOGLE_CLIENT_ID', desc: 'OAuth 클라이언트 ID' },
+                                  { name: 'GOOGLE_CLIENT_SECRET', desc: 'OAuth 클라이언트 보안 비밀번호' },
+                                ].map(s => (
+                                  <div key={s.name} className="flex items-center gap-2">
+                                    <div className="flex-1 bg-slate-100 border border-slate-200 rounded px-2 py-1 font-mono text-[11px] text-slate-700">{s.name}</div>
+                                    <span className="text-slate-400 text-[10px]">← {s.desc}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-slate-400 mt-1.5 text-[10px]">등록 후 AI Studio에서 앱 재배포 (Save & Deploy)</p>
+                            </div>
+                          </div>
+
+                          {/* Step 3 */}
+                          <div className={`flex gap-3 rounded-lg p-3 border ${driveStatus?.configured && !driveStatus?.authenticated ? 'bg-violet-50 border-violet-300' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">3</div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black text-slate-800">구글 계정 인증 → Refresh Token 발급</p>
+                              <p className="text-slate-500 mt-1 leading-relaxed">아래 버튼으로 구글 계정 허용 → 표시된 Refresh Token을 복사</p>
+                              <a
+                                href={driveStatus?.authUrl || `${getLocalServerUrl()}/api/google-auth`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] transition-colors"
+                              >
+                                <Key className="w-3 h-3" /> 구글 계정 인증하기 →
+                              </a>
+                              <p className="text-slate-400 mt-1.5 text-[10px]">인증 완료 화면에서 GOOGLE_REFRESH_TOKEN 값을 복사해 Secrets에 추가 후 재배포</p>
+                            </div>
+                          </div>
+
+                          {/* Step 4 (optional folder) */}
+                          <div className="flex gap-3 bg-slate-50 border border-dashed border-slate-200 rounded-lg p-3">
+                            <div className="w-5 h-5 rounded-full bg-slate-400 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">4</div>
+                            <div className="min-w-0">
+                              <p className="font-black text-slate-600">선택 — 업로드 대상 Drive 폴더 지정</p>
+                              <p className="text-slate-400 mt-1 leading-relaxed text-[11px]">비워두면 내 드라이브에 <code className="bg-slate-100 px-1 rounded">주간보고_제출현황</code> 폴더가 자동 생성됩니다.<br/>특정 폴더를 지정하려면 Drive 폴더 URL 마지막 ID를 <code className="bg-slate-100 px-1 rounded">GOOGLE_DRIVE_FOLDER_ID</code> Secret으로 등록하세요.</p>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+
+                      {/* PART B: 매주 AI Studio에서 보고서 검토하기 */}
+                      <div>
+                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">B. 매주 AI Studio에서 보고서 검토 · 다운로드</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                          {[
+                            { icon: '📤', title: '보고서 제출', desc: '각 교구·협회가 제출하면 Drive에 자동 업로드됩니다' },
+                            { icon: '🤖', title: 'AI Studio에서 열기', desc: 'AI Studio 채팅 → 파일 추가 → Drive → 주간보고_제출현황 폴더 선택' },
+                            { icon: '⬇️', title: 'AI 검토 후 다운로드', desc: 'AI가 서식 그대로 교정 → 워드 파일로 다운로드' },
+                          ].map(({ icon, title, desc }) => (
+                            <div key={title} className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+                              <p className="text-2xl mb-1">{icon}</p>
+                              <p className="font-black text-slate-800 mb-1">{title}</p>
+                              <p className="text-slate-500 leading-relaxed text-[11px]">{desc}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 바로가기 버튼 2개 */}
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <a
+                            href="https://aistudio.google.com/app/prompts"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-bold rounded-lg text-xs transition-all"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" /> Google AI Studio 열기 →
+                          </a>
+                          <a
+                            href="https://drive.google.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs transition-all"
+                          >
+                            <Folder className="w-3.5 h-3.5 text-emerald-600" /> Google Drive 열기 →
+                          </a>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                )}
+
               </div>
 
               {/* Action Buttons Container */}

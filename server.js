@@ -2,13 +2,92 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Readable } from 'stream';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ImageRun } from 'docx';
+import { google } from 'googleapis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 5000;
+
+// ─── Google Drive API ───────────────────────────────────────────────────────
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN || '';
+// 업로드 대상 Drive 폴더 ID (비워두면 내 드라이브 루트에 생성)
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+const APP_URL = process.env.APP_URL || `http://localhost:${5000}`;
+
+let oauth2Client = null;
+let driveClient = null;
+
+if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+  oauth2Client = new google.auth.OAuth2(
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    `${APP_URL}/api/google-auth/callback`
+  );
+  if (GOOGLE_REFRESH_TOKEN) {
+    oauth2Client.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
+    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+    console.log('[GoogleDrive] Drive API client initialized with stored refresh token.');
+  }
+}
+
+// Drive에 폴더를 조회 또는 생성하여 ID를 반환
+async function getOrCreateDriveFolder(name, parentId) {
+  const q = parentId
+    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+
+  const res = await driveClient.files.list({ q, fields: 'files(id)', spaces: 'drive' });
+  if (res.data.files.length > 0) return res.data.files[0].id;
+
+  const created = await driveClient.files.create({
+    requestBody: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: parentId ? [parentId] : (GOOGLE_DRIVE_FOLDER_ID ? [GOOGLE_DRIVE_FOLDER_ID] : [])
+    },
+    fields: 'id'
+  });
+  return created.data.id;
+}
+
+// Drive에 파일 업로드 (동명 파일이 있으면 덮어씀)
+async function uploadFileToDrive(filename, buffer, mimeType, folderId) {
+  if (!driveClient) return null;
+
+  // 동명 파일 존재 확인
+  const q = `name='${filename}' and '${folderId}' in parents and trashed=false`;
+  const existing = await driveClient.files.list({ q, fields: 'files(id)', spaces: 'drive' });
+
+  const stream = Readable.from(buffer);
+
+  if (existing.data.files.length > 0) {
+    // 기존 파일 업데이트 (내용 교체)
+    const fileId = existing.data.files[0].id;
+    await driveClient.files.update({
+      fileId,
+      media: { mimeType, body: stream }
+    });
+    console.log(`[GoogleDrive] Updated: ${filename} (id=${fileId})`);
+    return fileId;
+  } else {
+    const res = await driveClient.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media: { mimeType, body: stream },
+      fields: 'id'
+    });
+    console.log(`[GoogleDrive] Uploaded: ${filename} (id=${res.data.id})`);
+    return res.data.id;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 
 // JSON body parser with 50MB limit for large report payloads
 app.use(express.json({ limit: '50mb' }));
@@ -266,15 +345,27 @@ async function generateWordDocument(id, payload) {
 
   try {
     const buffer = await Packer.toBuffer(doc);
-    const parishPath = path.join(gDriveDir, parish);
-    if (!fs.existsSync(parishPath)) {
-      fs.mkdirSync(parishPath, { recursive: true });
-    }
     const cleanChurchName = church.replace(/[\/\\?%*:|"<>. ]/g, '_');
     const filename = `${cleanChurchName}_주간보고_${new Date().toISOString().slice(0, 10)}.docx`;
+
+    // 로컬 경로 저장 (Google Drive 스트리밍 / 로컬 백업)
+    const parishPath = path.join(gDriveDir, parish);
+    if (!fs.existsSync(parishPath)) fs.mkdirSync(parishPath, { recursive: true });
     const finalFilePath = path.join(parishPath, filename);
     fs.writeFileSync(finalFilePath, buffer);
-    console.log(`[GoogleDriveSync] Generated and saved Word document to: ${finalFilePath}`);
+    console.log(`[GoogleDriveSync] Saved locally: ${finalFilePath}`);
+
+    // Google Drive API 업로드
+    if (driveClient) {
+      try {
+        const rootFolderId = GOOGLE_DRIVE_FOLDER_ID || await getOrCreateDriveFolder('주간보고_제출현황', null);
+        const parishFolderId = await getOrCreateDriveFolder(parish, rootFolderId);
+        await uploadFileToDrive(filename, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', parishFolderId);
+        console.log(`[GoogleDrive] Word 파일 업로드 완료: ${parish}/${filename}`);
+      } catch (driveErr) {
+        console.error('[GoogleDrive] Word 업로드 실패:', driveErr.message);
+      }
+    }
   } catch (error) {
     console.error("[GoogleDriveSync] Failed to write Word file:", error);
   }
@@ -400,12 +491,24 @@ async function saveTextDocument(id, payload) {
   try {
     const cleanParishName = parish.replace(/[\/\\?%*:|"<>. ]/g, '_');
     const cleanChurchName = church.replace(/[\/\\?%*:|"<>. ]/g, '_');
-    
-    // 개별 교회가 실시간 저장/제출할 때마다 동일한 파일명으로 구글 드라이브 동기화 폴더 루트에 계속 덮어씀
     const filename = `[${cleanParishName}_${cleanChurchName}]_주간보고.txt`;
+
+    // 로컬 저장
     const finalFilePath = path.join(gDriveDir, filename);
     fs.writeFileSync(finalFilePath, textContent, 'utf-8');
-    console.log(`[GoogleDriveSync] Generated and saved text document to: ${finalFilePath}`);
+    console.log(`[GoogleDriveSync] Saved locally: ${finalFilePath}`);
+
+    // Google Drive API 업로드 (텍스트 파일 → AI Studio에서 바로 열기 가능)
+    if (driveClient) {
+      try {
+        const rootFolderId = GOOGLE_DRIVE_FOLDER_ID || await getOrCreateDriveFolder('주간보고_제출현황', null);
+        const textBuffer = Buffer.from(textContent, 'utf-8');
+        await uploadFileToDrive(filename, textBuffer, 'text/plain', rootFolderId);
+        console.log(`[GoogleDrive] 텍스트 파일 업로드 완료: ${filename}`);
+      } catch (driveErr) {
+        console.error('[GoogleDrive] 텍스트 업로드 실패:', driveErr.message);
+      }
+    }
   } catch (error) {
     console.error("[GoogleDriveSync] Failed to write text file:", error);
   }
@@ -553,6 +656,116 @@ app.post('/api/ollama-chat', async (req, res) => {
     res.status(500).json({ error: 'Could not connect to Ollama. Make sure Ollama is running on your PC (http://localhost:11434).' });
   }
 });
+
+// ─── Google Drive OAuth2 설정 엔드포인트 ────────────────────────────────────
+
+// GET /api/google-auth/status  → 현재 Drive 연동 상태 + 설정에 필요한 URL 반환
+app.get('/api/google-auth/status', (req, res) => {
+  const callbackUrl = `${APP_URL}/api/google-auth/callback`;
+  const authUrl = `${APP_URL}/api/google-auth`;
+  res.json({
+    configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    authenticated: !!driveClient,
+    hasRefreshToken: !!GOOGLE_REFRESH_TOKEN,
+    folderId: GOOGLE_DRIVE_FOLDER_ID || null,
+    appUrl: APP_URL,
+    callbackUrl,
+    authUrl,
+  });
+});
+
+// GET /api/google-auth  → Google OAuth 동의 화면으로 이동 (최초 1회 인증)
+app.get('/api/google-auth', (req, res) => {
+  if (!oauth2Client) {
+    return res.status(400).send(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+      <title>설정 필요</title>
+      <style>
+        body{font-family:'Pretendard',sans-serif;max-width:640px;margin:60px auto;padding:24px;color:#1e293b}
+        .card{background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:24px;margin-bottom:16px}
+        .step{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:8px 0}
+        code{background:#f1f5f9;padding:3px 8px;border-radius:4px;font-family:monospace;font-size:13px;word-break:break-all}
+        h2{color:#dc2626} h3{color:#475569;font-size:14px;margin:0 0 8px}
+        p{font-size:14px;line-height:1.6;margin:6px 0}
+      </style></head><body>
+      <h2>⚠️ Google Cloud 인증 정보 미설정</h2>
+      <div class="card">
+        <p>Google AI Studio의 <strong>Secrets 패널</strong>에 아래 두 값을 먼저 등록하세요.</p>
+      </div>
+      <div class="step"><h3>등록해야 할 Secret 이름</h3>
+        <p><code>GOOGLE_CLIENT_ID</code> — Google Cloud OAuth 클라이언트 ID</p>
+        <p><code>GOOGLE_CLIENT_SECRET</code> — Google Cloud OAuth 클라이언트 보안 비밀번호</p>
+      </div>
+      <div class="step"><h3>등록 위치</h3>
+        <p>Google AI Studio → 앱 편집기 우측 상단 <strong>Secrets</strong> 탭 → + 추가</p>
+      </div>
+      <p style="margin-top:20px;font-size:13px;color:#64748b">Secret 등록 후 앱을 재배포하고 다시 이 주소를 열어주세요.</p>
+      </body></html>`);
+  }
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/drive.file']
+  });
+  res.redirect(authUrl);
+});
+
+// GET /api/google-auth/callback  → 인증 후 Google이 리다이렉트하는 콜백
+app.get('/api/google-auth/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.status(400).send(`<h2>인증 실패: ${error || '코드 없음'}</h2>`);
+  }
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+
+    const refreshToken = tokens.refresh_token;
+    res.send(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+      <title>Google Drive 연동 완료</title>
+      <style>
+        body{font-family:'Pretendard',sans-serif;max-width:680px;margin:60px auto;padding:24px;color:#1e293b}
+        h2{color:#16a34a;margin-bottom:8px}
+        .green{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;margin:16px 0}
+        .blue{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin:16px 0}
+        .step{display:flex;gap:12px;align-items:flex-start;margin:10px 0}
+        .num{width:24px;height:24px;border-radius:50%;background:#6366f1;color:#fff;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+        code{background:#f1f5f9;padding:4px 10px;border-radius:6px;font-family:monospace;font-size:13px;word-break:break-all;display:block;margin-top:6px}
+        button{background:#6366f1;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px}
+        button:hover{background:#4f46e5}
+        p{font-size:14px;line-height:1.7;margin:4px 0}
+        .warn{color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;margin-top:8px}
+      </style></head><body>
+      <h2>✅ Google 계정 인증 완료!</h2>
+      <p style="color:#475569">이제 아래 Refresh Token을 Google AI Studio Secrets에 등록해야 자동 업로드가 작동합니다.</p>
+
+      <div class="green">
+        <p><strong>📋 복사할 Refresh Token</strong></p>
+        ${refreshToken
+          ? `<code id="token">${refreshToken}</code>
+             <button onclick="navigator.clipboard.writeText('${refreshToken}').then(()=>this.textContent='✅ 복사됨!')">클립보드 복사</button>`
+          : `<p class="warn">⚠️ Refresh Token이 발급되지 않았습니다. <br>이미 이 계정으로 인증한 적이 있으면 <a href="/api/google-auth">여기서 다시 인증</a>하세요 (consent 화면에서 계정 재선택).</p>`
+        }
+      </div>
+
+      <div class="blue">
+        <p><strong>📌 AI Studio Secrets에 등록하는 방법</strong></p>
+        <div class="step"><div class="num">1</div><p>Google AI Studio → 현재 앱 편집기 열기</p></div>
+        <div class="step"><div class="num">2</div><p>우측 상단 <strong>Secrets</strong> 탭 클릭</p></div>
+        <div class="step"><div class="num">3</div><p>이름: <code>GOOGLE_REFRESH_TOKEN</code><br>값: 위 토큰 붙여넣기 → 저장</p></div>
+        <div class="step"><div class="num">4</div><p>(선택) 업로드할 Drive 폴더 ID가 있으면:<br><code>GOOGLE_DRIVE_FOLDER_ID</code> 도 함께 등록</p></div>
+        <div class="step"><div class="num">5</div><p>앱 <strong>재배포</strong> → 관리자 콘솔에서 연동 상태 🟢 확인</p></div>
+      </div>
+
+      <p style="font-size:13px;color:#94a3b8;margin-top:16px">이 창은 닫아도 됩니다.</p>
+      </body></html>`);
+  } catch (err) {
+    console.error('[GoogleDrive] Token exchange failed:', err);
+    res.status(500).send(`<h2>토큰 교환 실패</h2><pre>${err.message}</pre>`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // 4.5 Open Sync Folder inside File Explorer
 app.post('/api/open-folder', async (req, res) => {
