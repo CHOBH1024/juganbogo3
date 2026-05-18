@@ -68,12 +68,13 @@ const saveDbData = async (id: string, payload: any) => {
     }
   }
 
-  // Vercel 서버리스 함수로 Drive 업로드 — 결과 반환
+  // Vercel 서버리스 함수로 Drive 업로드 — report_ 접두사 포함해서 전달
+  const driveId = id.startsWith('report_') ? id : `report_${id}`;
   try {
     const driveRes = await fetch('/api/save-drive', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, payload })
+      body: JSON.stringify({ id: driveId, payload })
     });
     const driveJson = await driveRes.json();
     return driveJson?.success ? 'ok' : driveJson?.skipped ? 'skipped' : 'error';
@@ -143,6 +144,10 @@ const toCircled = (num: number) => {
   if (num >= 1 && num <= 15) return String.fromCharCode(9311 + num);
   return `(${num})`;
 };
+
+const KOR_SYLLABLES = ['가','나','다','라','마','바','사','아','자','차','카','타','파','하'];
+const toKorSyllable = (num: number) => KOR_SYLLABLES[num - 1] || `(${num})`;
+const toLatin = (num: number) => String.fromCharCode(96 + num) || `(${num})`;
 
 function getCleanData(data: ReportItem[]) {
   const result: ReportItem[] = [];
@@ -214,6 +219,7 @@ export default function App() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [driveSaveResult, setDriveSaveResult] = useState<'ok' | 'skipped' | 'error' | 'saving' | null>(null);
+  const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [aiCorrections, setAiCorrections] = useState<any[] | null>(null);
 
@@ -800,21 +806,27 @@ export default function App() {
           );
           chIndex++;
 
-          const counters = [0, 0, 0, 0];
+          const counters = [0, 0, 0, 0, 0, 0];
           for (const item of dataToUse) {
             let prefix = "";
             if (item.level === 0) {
-              counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+              counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
               prefix = toRoman(counters[0]) + ". ";
             } else if (item.level === 1) {
-              counters[1]++; counters[2] = 0; counters[3] = 0;
+              counters[1]++; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
               prefix = counters[1] + ". ";
             } else if (item.level === 2) {
-              counters[2]++; counters[3] = 0;
+              counters[2]++; counters[3] = 0; counters[4] = 0; counters[5] = 0;
               prefix = counters[2] + ") ";
             } else if (item.level === 3) {
-              counters[3]++;
+              counters[3]++; counters[4] = 0; counters[5] = 0;
               prefix = toCircled(counters[3]) + " ";
+            } else if (item.level === 4) {
+              counters[4]++; counters[5] = 0;
+              prefix = toKorSyllable(counters[4]) + ". ";
+            } else if (item.level === 5) {
+              counters[5]++;
+              prefix = toLatin(counters[5]) + ". ";
             }
 
             let color = "000000";
@@ -1618,10 +1630,13 @@ export default function App() {
         setDriveSaveResult('saving');
         const result = await saveDbData(`${parish}_${church}`, {
           id: `${parish}_${church}`,
+          parish,
+          church,
           ...saveData,
           updated_at: new Date().toISOString()
         });
         setDriveSaveResult(result as any || null);
+        if (result === 'ok') setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       } catch (e) {
         console.error("Manual save failed", e);
         setDriveSaveResult('error');
@@ -1637,7 +1652,7 @@ export default function App() {
   const changeLevel = (id: number, delta: number) => {
     setReportData(data => data.map(item => {
       if (item.id === id && !item.isFixed) {
-        const newLevel = Math.max(1, Math.min(3, item.level + delta));
+        const newLevel = Math.max(1, Math.min(5, item.level + delta));
         return { ...item, level: newLevel };
       }
       return item;
@@ -1994,8 +2009,8 @@ export default function App() {
 
       if (dataToUse.length === 0) continue;
 
-      let counters = { 0: 0, 1: 0, 2: 0, 3: 0 };
-      
+      let counters = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
       // Church Header
       allChildren.push(
         new Paragraph({
@@ -2017,17 +2032,23 @@ export default function App() {
       for (const item of dataToUse) {
         let prefix = "";
         if (item.level === 0) {
-            counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+            counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
             prefix = toRoman(counters[0]) + ". ";
         } else if (item.level === 1) {
-            counters[1]++; counters[2] = 0; counters[3] = 0;
+            counters[1]++; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
             prefix = counters[1] + ". ";
         } else if (item.level === 2) {
-            counters[2]++; counters[3] = 0;
+            counters[2]++; counters[3] = 0; counters[4] = 0; counters[5] = 0;
             prefix = counters[2] + ") ";
         } else if (item.level === 3) {
-            counters[3]++;
+            counters[3]++; counters[4] = 0; counters[5] = 0;
             prefix = toCircled(counters[3]) + " ";
+        } else if (item.level === 4) {
+            counters[4]++; counters[5] = 0;
+            prefix = toKorSyllable(counters[4]) + ". ";
+        } else if (item.level === 5) {
+            counters[5]++;
+            prefix = toLatin(counters[5]) + ". ";
         }
 
         let color = "000000";
@@ -2185,7 +2206,7 @@ export default function App() {
   };
 
 const renderPreviewLines = () => {
-    let counters = { 0: 0, 1: 0, 2: 0, 3: 0 };
+    let counters = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     const cleanData = getCleanData(reportData);
 
     if (cleanData.length === 0) {
@@ -2201,17 +2222,23 @@ const renderPreviewLines = () => {
     return cleanData.map(item => {
       let prefix = "";
       if (item.level === 0) {
-          counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+          counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
           prefix = toRoman(counters[0]) + ". ";
       } else if (item.level === 1) {
-          counters[1]++; counters[2] = 0; counters[3] = 0;
+          counters[1]++; counters[2] = 0; counters[3] = 0; counters[4] = 0; counters[5] = 0;
           prefix = counters[1] + ". ";
       } else if (item.level === 2) {
-          counters[2]++; counters[3] = 0;
+          counters[2]++; counters[3] = 0; counters[4] = 0; counters[5] = 0;
           prefix = counters[2] + ") ";
       } else if (item.level === 3) {
-          counters[3]++;
+          counters[3]++; counters[4] = 0; counters[5] = 0;
           prefix = toCircled(counters[3]) + " ";
+      } else if (item.level === 4) {
+          counters[4]++; counters[5] = 0;
+          prefix = toKorSyllable(counters[4]) + ". ";
+      } else if (item.level === 5) {
+          counters[5]++;
+          prefix = toLatin(counters[5]) + ". ";
       }
 
       let colorClass = "";
@@ -2219,6 +2246,8 @@ const renderPreviewLines = () => {
       else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-2";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
+      else if (item.level === 4) colorClass = "text-slate-600 ml-14";
+      else if (item.level === 5) colorClass = "text-slate-600 ml-16";
 
       return (
         <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
@@ -2770,14 +2799,14 @@ const renderPreviewLines = () => {
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-2 pb-4">
             {(() => {
-              let editorL0Counter = 0;
+              const editorCounters = [0, 0, 0, 0, 0, 0];
               return reportData.map((item, index) => {
                 if (item.level === 0) {
-                  editorL0Counter++;
+                  editorCounters[0]++; editorCounters[1]=0; editorCounters[2]=0; editorCounters[3]=0; editorCounters[4]=0; editorCounters[5]=0;
                   return (
                     <div key={item.id} className="flex flex-col gap-2 py-3 mt-4 first:mt-0 group">
                       <div className="font-bold text-lg text-blue-800 border-b-2 border-blue-100 w-full pb-1 flex items-center gap-2">
-                        <span className="shrink-0">{toRoman(editorL0Counter)}.</span>
+                        <span className="shrink-0">{toRoman(editorCounters[0])}.</span>
                         <TextareaAutosize
                           id={`input-${item.id}`}
                           value={item.text}
@@ -2992,28 +3021,42 @@ const renderPreviewLines = () => {
                   );
                 }
 
-                return (
+                return (() => {
+                  if (item.level === 1) { editorCounters[1]++; editorCounters[2]=0; editorCounters[3]=0; editorCounters[4]=0; editorCounters[5]=0; }
+                  else if (item.level === 2) { editorCounters[2]++; editorCounters[3]=0; editorCounters[4]=0; editorCounters[5]=0; }
+                  else if (item.level === 3) { editorCounters[3]++; editorCounters[4]=0; editorCounters[5]=0; }
+                  else if (item.level === 4) { editorCounters[4]++; editorCounters[5]=0; }
+                  else if (item.level === 5) { editorCounters[5]++; }
+                  const lvlPrefix =
+                    item.level === 1 ? `${editorCounters[1]}.` :
+                    item.level === 2 ? `${editorCounters[2]})` :
+                    item.level === 3 ? toCircled(editorCounters[3]) :
+                    item.level === 4 ? `${toKorSyllable(editorCounters[4])}.` :
+                    item.level === 5 ? `${toLatin(editorCounters[5])}.` : '';
+                  return (
                   <div key={item.id} className="flex flex-col gap-1 group">
-                    <div className="flex items-center gap-2">
-                    <div style={{ width: `${(item.level - 1) * 24}px` }} className="shrink-0 transition-all duration-200" />
-                    <span className="text-[10px] uppercase font-bold text-slate-300 w-6 shrink-0 select-none text-right">
-                      L{item.level}
-                    </span>
-                    <TextareaAutosize
-                      id={`input-${item.id}`}
-                      value={item.text}
-                      onChange={(e) => updateText(item.id, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, item.id, index)}
-                      onPaste={(e) => handlePaste(e, item.id)}
-                      placeholder="항목 내용을 입력하세요 (구분된 데이터 붙여넣기 시 표 생성)"
-                      minRows={1}
-                      className="flex-1 px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors resize-none leading-relaxed"
-                    />
+                    <div className="flex items-center gap-1">
+                    <div style={{ width: `${(item.level - 1) * 20}px` }} className="shrink-0 transition-all duration-200" />
+                    <div className={`flex items-center flex-1 rounded-md border transition-colors focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 focus-within:bg-white bg-slate-50 border-slate-200`}>
+                      <span className={`pl-2.5 pr-1 py-2.5 text-sm font-bold shrink-0 select-none whitespace-nowrap ${item.level === 1 ? 'text-blue-700' : item.level === 2 ? 'text-slate-700' : 'text-slate-500'}`}>
+                        {lvlPrefix}
+                      </span>
+                      <TextareaAutosize
+                        id={`input-${item.id}`}
+                        value={item.text}
+                        onChange={(e) => updateText(item.id, e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, item.id, index)}
+                        onPaste={(e) => handlePaste(e, item.id)}
+                        placeholder="항목 내용을 입력하세요"
+                        minRows={1}
+                        className="flex-1 pr-3 py-2.5 text-sm bg-transparent border-none outline-none focus:ring-0 resize-none leading-relaxed"
+                      />
+                    </div>
                   </div>
 
-                  <div 
+                  <div
                     className="flex items-center flex-wrap gap-2 transition-all duration-200 opacity-0 max-h-0 overflow-hidden group-focus-within:opacity-100 group-focus-within:max-h-24 group-focus-within:mt-1 group-hover:opacity-100 group-hover:max-h-24 group-hover:mt-1"
-                    style={{ paddingLeft: `${(item.level - 1) * 24 + 32}px` }}
+                    style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}
                   >
                     <button onClick={() => changeLevel(item.id, -1)} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition-colors" title="상위 수준 (Shift+Tab)">
                       <ArrowLeft className="w-3.5 h-3.5" /> 내어쓰기
@@ -3037,7 +3080,7 @@ const renderPreviewLines = () => {
                   </div>
                   {item.image && (
                     <div className="flex items-center gap-2 mt-1">
-                      <div style={{ width: `${(item.level - 1) * 24 + 32}px` }} className="shrink-0" />
+                      <div style={{ width: `${(item.level - 1) * 20 + 4}px` }} className="shrink-0" />
                       <div className="relative inline-block group/img">
                         <img src={item.image} alt="첨부" className="h-24 object-contain rounded border border-slate-200" />
                         <button 
@@ -3050,7 +3093,7 @@ const renderPreviewLines = () => {
                     </div>
                   )}
                   {item.tableData && (
-                    <div className="mt-2 text-slate-700" style={{ paddingLeft: `${(item.level - 1) * 24 + 32}px` }}>
+                    <div className="mt-2 text-slate-700" style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}>
                       <div className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
                         <div className="flex justify-between items-center bg-slate-50 px-2 py-1.5 border-b border-slate-200">
                           <div className="flex items-center gap-2">
@@ -3223,7 +3266,7 @@ const renderPreviewLines = () => {
                   )}
                 </div>
               );
-            })})()}
+            })()})})()}
             
             <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
               <button 
@@ -3268,10 +3311,10 @@ const renderPreviewLines = () => {
                 </span>
                 {driveSaveResult && (
                   <span className={`text-[11px] font-semibold flex items-center gap-1 ${driveSaveResult === 'ok' ? 'text-emerald-600' : driveSaveResult === 'saving' ? 'text-blue-500' : driveSaveResult === 'skipped' ? 'text-slate-400' : 'text-red-500'}`}>
-                    {driveSaveResult === 'ok' && '☁️ 구글 드라이브 저장 완료'}
+                    {driveSaveResult === 'ok' && `☁️ 구글 드라이브 저장 완료${driveSavedAt ? ` · ${driveSavedAt}` : ''}`}
                     {driveSaveResult === 'saving' && '☁️ 드라이브 저장 중...'}
-                    {driveSaveResult === 'skipped' && '☁️ 드라이브 미연결'}
-                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패'}
+                    {driveSaveResult === 'skipped' && '⚠️ 드라이브 미연결 — /api/google-auth 에서 인증 필요'}
+                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패 — 관리자 문의'}
                   </span>
                 )}
               </div>

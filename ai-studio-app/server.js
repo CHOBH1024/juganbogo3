@@ -7,6 +7,17 @@ import { Readable } from 'stream';
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// 시작 시 필수 환경변수 확인
+const REQUIRED_VARS = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN'];
+const MISSING = REQUIRED_VARS.filter(v => !process.env[v]);
+if (MISSING.length) {
+  console.warn(`⚠️  환경변수 미설정: ${MISSING.join(', ')}`);
+  console.warn('   Drive 연동 기능이 동작하지 않습니다.');
+}
+if (!process.env.API_KEY && !process.env.GEMINI_API_KEY) {
+  console.warn('⚠️  API_KEY (Gemini) 미설정 — AI 검토 기능이 동작하지 않습니다.');
+}
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
@@ -38,22 +49,17 @@ async function downloadJson(drive, fileId) {
 app.get('/api/reports', async (req, res) => {
   try {
     const drive = getDriveClient();
-    const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    let folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-    if (!rootId) {
-      // GOOGLE_DRIVE_FOLDER_ID 없으면 '주간보고_제출현황' 폴더 자동 탐색
+    if (!folderId) {
       const found = await drive.files.list({
         q: `name='주간보고_제출현황' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id)',
         spaces: 'drive',
       });
       if (!found.data.files.length) return res.json({ parishes: [] });
+      folderId = found.data.files[0].id;
     }
-
-    const folderId = rootId || (await drive.files.list({
-      q: `name='주간보고_제출현황' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)', spaces: 'drive',
-    })).data.files[0]?.id;
 
     // 교구 폴더 목록
     const parishFolders = await listFiles(drive, folderId, null);
@@ -200,13 +206,16 @@ async function buildParishWord(parishData, corrections) {
       border: { bottom: { style: 'single', size: 6, color: 'BFDBFE' } },
     }));
 
-    const counters = [0,0,0,0];
+    const KOR_CONS = ['가','나','다','라','마','바','사','아','자','차','카','타','파','하'];
+    const counters = [0,0,0,0,0,0];
     for (const item of (ch.payload?.data || [])) {
       let prefix = '';
-      if (item.level===0){counters[0]++;counters[1]=0;counters[2]=0;counters[3]=0;prefix=counters[0]+'. ';}
-      else if(item.level===1){counters[1]++;counters[2]=0;counters[3]=0;prefix=counters[1]+') ';}
-      else if(item.level===2){counters[2]++;counters[3]=0;prefix=toCircled(counters[2])+' ';}
-      else if(item.level===3){counters[3]++;prefix='- ';}
+      if (item.level===0){counters[0]++;counters[1]=0;counters[2]=0;counters[3]=0;counters[4]=0;counters[5]=0;prefix=toRoman(counters[0])+'. ';}
+      else if(item.level===1){counters[1]++;counters[2]=0;counters[3]=0;counters[4]=0;counters[5]=0;prefix=counters[1]+'. ';}
+      else if(item.level===2){counters[2]++;counters[3]=0;counters[4]=0;counters[5]=0;prefix=counters[2]+') ';}
+      else if(item.level===3){counters[3]++;counters[4]=0;counters[5]=0;prefix=toCircled(counters[3])+' ';}
+      else if(item.level===4){counters[4]++;counters[5]=0;prefix=(KOR_CONS[counters[4]-1]||`(${counters[4]})`)+'. ';}
+      else if(item.level===5){counters[5]++;prefix=String.fromCharCode(96+counters[5])+'. ';}
 
       const raw = item.text || '';
       const key = `${parishData.parish}__${ch.church}__${raw}`;
