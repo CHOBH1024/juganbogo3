@@ -245,6 +245,14 @@ export default function App() {
   const [activeNotice, setActiveNotice] = useState<any | null>(null);
   const [isUploadingNotice, setIsUploadingNotice] = useState(false);
 
+  // 관리자 통합 취합 콘솔용 상태
+  const [isAdminCheckingAI, setIsAdminCheckingAI] = useState(false);
+  const [adminAiCorrections, setAdminAiCorrections] = useState<any[] | null>(null);
+  const [adminReportStatusMap, setAdminReportStatusMap] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
+  const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
+  const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
+  const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
+
   const loadNotices = async () => {
     try {
       const parsed = await fetchDbData('SYSTEM_NOTICES');
@@ -413,6 +421,499 @@ export default function App() {
     } catch (e) {
       console.error(e);
       alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // --- 관리자 콘솔 전용 핵심 로직 ---
+  const getReportDataFor = async (p: string, c: string) => {
+    const key = `report_${p}_${c}`;
+    const local = localStorage.getItem(key);
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch(e){}
+    }
+    if (isLocalMode) {
+      try {
+        const serverUrl = getLocalServerUrl();
+        const res = await fetch(`${serverUrl}/api/load-data/${key}`);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch(e){}
+    }
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.storage.from('images').download(`db_reports/${p}_${c}.json`);
+        if (!error && data) {
+          const text = await data.text();
+          return JSON.parse(text);
+        }
+      } catch(e){}
+    }
+    return null;
+  };
+
+  const loadAllReportsStatus = async () => {
+    const stats: Record<string, 'empty' | 'draft' | 'submitted'> = {};
+    for (const p of Object.keys(PARISH_CHURCH_MAP)) {
+      for (const c of PARISH_CHURCH_MAP[p]) {
+        const key = `${p}_${c}`;
+        
+        // 1. 현재 로드된 교회 체크
+        if (p === parish && c === church) {
+          if (status === 'submitted') {
+            stats[key] = 'submitted';
+          } else {
+            stats[key] = getCleanData(reportData).length > 0 ? 'draft' : 'empty';
+          }
+          continue;
+        }
+
+        // 2. localStorage 체크
+        const saved = localStorage.getItem(`report_${p}_${c}`);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed.status === 'submitted') {
+              stats[key] = 'submitted';
+            } else {
+              const d = parsed.data || [];
+              stats[key] = getCleanData(d).length > 0 ? 'draft' : 'empty';
+            }
+          } catch(e) {
+            stats[key] = 'empty';
+          }
+        } else {
+          stats[key] = 'empty';
+        }
+      }
+    }
+    setAdminReportStatusMap(stats);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'admin_console') {
+      loadAllReportsStatus();
+    }
+  }, [activeTab, parish, church, status, reportData]);
+
+  const startAdminAiReview = async () => {
+    setIsAdminCheckingAI(true);
+    setAdminCompilationProgress("전국 교구 및 협회 보고서 실시간 취합 중...");
+    setAdminAiCorrections(null);
+
+    try {
+      let allAdminPayload: any[] = [];
+      const parishes = Object.keys(PARISH_CHURCH_MAP);
+
+      for (const p of parishes) {
+        setAdminCompilationProgress(`[${getDisplayParish(p)}] 보고서 분석 중...`);
+        for (const c of PARISH_CHURCH_MAP[p]) {
+          let dataToUse: ReportItem[] = [];
+          if (p === parish && c === church) {
+            dataToUse = getCleanData(reportData);
+          } else {
+            const report = await getReportDataFor(p, c);
+            if (report && report.data) {
+              dataToUse = getCleanData(report.data);
+            }
+          }
+          
+          dataToUse.filter(item => item.text.trim() !== "").forEach(item => {
+            allAdminPayload.push({ parish: p, church: c, id: item.id, text: item.text });
+          });
+        }
+      }
+
+      if (allAdminPayload.length === 0) {
+        alert("취합된 주간보고 내용이 없습니다. 각 교구 및 부서의 보고서 작성 현황을 확인해 주세요.");
+        setIsAdminCheckingAI(false);
+        return;
+      }
+
+      setAdminCompilationProgress(`총 ${allAdminPayload.length}개 업무보고 항목 취합 성공. AI 종합 편집 및 문맥 검토 분석 중...`);
+
+      const adminAiPrompt = `당신은 전체 교구 및 협회 주간업무보고를 총괄 검토하는 전문 수석 편집자입니다.
+아래 제공된 데이터의 텍스트(text)를 검토하세요. 각 항목은 교구(parish), 교회(church), 항목 ID(id)를 가지고 있습니다.
+1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 개조식 형식(~함, ~예정 등)에 맞지 않는 항목들을 찾아 완벽하게 교정해 주세요.
+반드시 아래 JSON 배열 형태로만 정확히 응답하세요. (백틱이나 markdown 코드 블록 없이 순수 JSON만 반환해야 합니다.)
+[{ "parish": "교구이름", "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "완벽히 교정한 텍스트", "reason": "교정 이유" }]`;
+
+      let text = "";
+
+      if (isLocalMode) {
+        const serverUrl = getLocalServerUrl();
+        const res = await fetch(`${serverUrl}/api/ollama-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: adminAiPrompt + `\n\n데이터:\n${JSON.stringify(allAdminPayload, null, 2)}`
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          text = data.text;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Ollama API failed");
+        }
+      } else {
+        const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY');
+        if (openRouterKey) {
+          const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openRouterKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.0-flash-lite-preview-02-05:free",
+              response_format: { type: "json_object" },
+              messages: [{ role: "user", content: adminAiPrompt + `\n\n데이터:\n${JSON.stringify(allAdminPayload, null, 2)}` }]
+            })
+          });
+          if (res.ok) {
+            const json = await res.json();
+            text = json.choices[0].message.content;
+          }
+        }
+      }
+
+      if (!text) throw new Error("AI 검토 응답을 수신하지 못했습니다.");
+
+      let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+      const match = cleanText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (match) cleanText = match[0];
+      
+      const corrections = JSON.parse(cleanText);
+      setAdminAiCorrections(corrections);
+      
+      // 기본적으로 모든 교정 사항을 체크(적용) 상태로 활성화
+      const initialSelected: Record<string, boolean> = {};
+      corrections.forEach((c: any) => {
+        const key = `${c.parish}_${c.church}_${c.id}`;
+        initialSelected[key] = true;
+      });
+      setAdminSelectedCorrections(initialSelected);
+
+      setAdminCompilationProgress("");
+    } catch (err: any) {
+      console.error(err);
+      alert(`AI 통합 검토 중 오류가 발생했습니다: ${err.message}`);
+    } finally {
+      setIsAdminCheckingAI(false);
+    }
+  };
+
+  const toggleAdminCorrectionSelected = (parishName: string, churchName: string, id: number) => {
+    const key = `${parishName}_${churchName}_${id}`;
+    setAdminSelectedCorrections(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const applySelectedAdminCorrections = async () => {
+    if (!adminAiCorrections) return;
+
+    const selected = adminAiCorrections.filter(c => {
+      const key = `${c.parish}_${c.church}_${c.id}`;
+      return !!adminSelectedCorrections[key];
+    });
+
+    if (selected.length === 0) {
+      alert("적용할 교정 사항이 선택되지 않았습니다.");
+      return;
+    }
+
+    setAdminCompilationProgress("선택된 교정 사항을 데이터베이스에 실시간 반영 중...");
+
+    const grouped: Record<string, Record<string, {id: number, text: string}[]>> = {};
+    selected.forEach(c => {
+      if (!grouped[c.parish]) grouped[c.parish] = {};
+      if (!grouped[c.parish][c.church]) grouped[c.parish][c.church] = [];
+      grouped[c.parish][c.church].push({ id: c.id, text: c.corrected });
+    });
+
+    for (const [pName, churchesMap] of Object.entries(grouped)) {
+      for (const [cName, updates] of Object.entries(churchesMap)) {
+        const updateMap = new Map(updates.map(u => [u.id, u.text]));
+        
+        if (pName === parish && cName === church) {
+          setReportData(data => data.map(item => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item));
+        } else {
+          const key = `report_${pName}_${cName}`;
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.data) {
+                parsed.data = parsed.data.map((item: any) => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item);
+                localStorage.setItem(key, JSON.stringify(parsed));
+                await saveDbData(`${pName}_${cName}`, { id: `${pName}_${cName}`, ...parsed, updated_at: new Date().toISOString() });
+              }
+            } catch(e){}
+          }
+        }
+      }
+    }
+
+    const appliedKeys = new Set(selected.map(c => `${c.parish}_${c.church}_${c.id}`));
+    setAdminAiCorrections(prev => prev ? prev.filter(c => !appliedKeys.has(`${c.parish}_${c.church}_${c.id}`)) : null);
+    
+    setAdminCompilationProgress("");
+    alert(`${selected.length}개의 AI 교정 제안이 성공적으로 반영되었습니다!`);
+    loadAllReportsStatus();
+  };
+
+  const exportMasterToWord = async () => {
+    setAdminCompilationProgress("전체 교구 및 협회 데이터를 최종 취합하여 워드(Word) 문서를 생성하는 중...");
+    
+    try {
+      let allChildren: (Paragraph | Table)[] = [];
+      
+      allChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "전국 교구 및 협회 통합 주간업무보고서",
+              size: 40,
+              bold: true,
+              color: "1D4ED8",
+              font: "맑은 고딕"
+            })
+          ],
+          alignment: "center" as const,
+          spacing: { before: 400, after: 400 },
+          border: {
+            bottom: { color: "1D4ED8", space: 15, size: 24, style: BorderStyle.SINGLE },
+          }
+        })
+      );
+
+      const parishes = Object.keys(PARISH_CHURCH_MAP);
+
+      for (const p of parishes) {
+        let parishHasData = false;
+        const tempChildren: (Paragraph | Table)[] = [];
+
+        tempChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `■ ${getDisplayParish(p)} 업무보고`,
+                size: 28,
+                bold: true,
+                color: "1D4ED8",
+                font: "맑은 고딕"
+              })
+            ],
+            spacing: { before: 400, after: 200 }
+          })
+        );
+
+        const churches = PARISH_CHURCH_MAP[p];
+        let chIndex = 1;
+
+        for (const c of churches) {
+          let dataToUse: ReportItem[] = [];
+          if (p === parish && c === church) {
+            dataToUse = getCleanData(reportData);
+          } else {
+            const report = await getReportDataFor(p, c);
+            if (report && report.data) {
+              dataToUse = getCleanData(report.data);
+            }
+          }
+
+          if (dataToUse.length === 0) continue;
+          parishHasData = true;
+
+          tempChildren.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `${chIndex}. ${getDisplayChurch(c)}`,
+                  size: 24,
+                  bold: true,
+                  color: "1E3A8A",
+                  font: "맑은 고딕"
+                })
+              ],
+              spacing: { before: 240, after: 120 }
+            })
+          );
+          chIndex++;
+
+          const counters = [0, 0, 0, 0];
+          for (const item of dataToUse) {
+            let prefix = "";
+            if (item.level === 0) {
+              counters[0]++; counters[1] = 0; counters[2] = 0; counters[3] = 0;
+              prefix = toRoman(counters[0]) + ". ";
+            } else if (item.level === 1) {
+              counters[1]++; counters[2] = 0; counters[3] = 0;
+              prefix = counters[1] + ". ";
+            } else if (item.level === 2) {
+              counters[2]++; counters[3] = 0;
+              prefix = counters[2] + ") ";
+            } else if (item.level === 3) {
+              counters[3]++;
+              prefix = toCircled(counters[3]) + " ";
+            }
+
+            let color = "000000";
+            if (item.level <= 1) color = "1D4ED8";
+            
+            const lines = `${prefix}${item.text || ''}`.split('\n');
+
+            tempChildren.push(new Paragraph({
+              children: lines.map((line, idx) => 
+                new TextRun({
+                  text: line,
+                  break: idx > 0 ? 1 : 0,
+                  bold: item.level <= 1,
+                  color: color,
+                  font: "맑은 고딕",
+                  size: 22,
+                })
+              ),
+              indent: {
+                left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360))
+              },
+              spacing: {
+                before: item.level === 0 ? 360 : 120, 
+              }
+            }));
+
+            if (item.tableData && item.tableData.length > 0) {
+              const skippedCells = new Set<string>();
+              const docTable = new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: item.tableData.map((row, rIdx) => {
+                  const cells = [];
+                  row.forEach((cellText, cIdx) => {
+                    if (skippedCells.has(`${rIdx},${cIdx}`)) return;
+                    
+                    const spanDef = item.tableSpans?.[rIdx]?.[cIdx];
+                    const colSpan = (typeof spanDef === 'number' ? spanDef : spanDef?.colspan) || 1;
+                    const rowSpan = (typeof spanDef === 'number' ? 1 : spanDef?.rowspan) || 1;
+                    
+                    for (let r = 0; r < rowSpan; r++) {
+                      for (let c = 0; c < colSpan; c++) {
+                        if (r === 0 && c === 0) continue;
+                        skippedCells.add(`${rIdx + r},${cIdx + c}`);
+                      }
+                    }
+                    
+                    const align = item.tableAlignments?.[rIdx]?.[cIdx] || 'left';
+                    const isHighlighted = item.tableHighlights?.[rIdx]?.[cIdx];
+                    
+                    cells.push(new TableCell({
+                      children: [
+                        new Paragraph({
+                          children: [
+                            new TextRun({
+                              text: cellText || '',
+                              bold: isHighlighted,
+                              color: isHighlighted ? "1D4ED8" : "000000",
+                              font: "맑은 고딕",
+                              size: 18
+                            })
+                          ],
+                          alignment: align === 'center' ? 'center' : align === 'right' ? 'right' : 'left'
+                        })
+                      ],
+                      columnSpan: colSpan,
+                      rowSpan: rowSpan,
+                      shading: isHighlighted ? { fill: "EFF6FF" } : undefined
+                    }));
+                  });
+                  return new TableRow({ children: cells });
+                })
+              });
+              tempChildren.push(docTable);
+            }
+
+            if (item.image && item.imageWidth && item.imageHeight) {
+              try {
+                let imageBuffer: ArrayBuffer;
+                if (item.image.startsWith("http")) {
+                  const res = await fetch(item.image);
+                  imageBuffer = await res.arrayBuffer();
+                } else {
+                  const base64Data = item.image.split(",")[1];
+                  imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0));
+                }
+                
+                const targetWidth = 500;
+                const ratio = Math.min(1, targetWidth / item.imageWidth);
+                const finalWidth = item.imageWidth * ratio;
+                const finalHeight = item.imageHeight * ratio;
+
+                tempChildren.push(new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: imageBuffer,
+                      transformation: {
+                        width: finalWidth,
+                        height: finalHeight
+                      },
+                      type: "png"
+                    })
+                  ],
+                  indent: {
+                    left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360))
+                  },
+                  spacing: { before: 120 }
+                }));
+              } catch (e) {
+                console.error("[Word] Failed to embed image:", e);
+              }
+            }
+          }
+        }
+
+        if (parishHasData) {
+          allChildren = [...allChildren, ...tempChildren];
+        }
+      }
+
+      if (allChildren.length <= 1) {
+        alert("취합할 보고서 데이터가 존재하지 않습니다.");
+        setAdminCompilationProgress("");
+        return;
+      }
+
+      const doc = new Document({
+        sections: [{
+          properties: {
+            page: {
+              size: {
+                width: 11906,
+                height: 16838,
+              }
+            }
+          },
+          children: allChildren,
+        }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `전국교구_및_협회_종합_업무보고_${new Date().toISOString().split('T')[0]}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setAdminCompilationProgress("");
+      alert("종합 주간업무보고 워드 문서 다운로드가 완료되었습니다!");
+    } catch(err: any) {
+      console.error(err);
+      alert(`문서 생성 중 오류 발생: ${err.message}`);
+      setAdminCompilationProgress("");
     }
   };
 
@@ -1911,6 +2412,19 @@ const renderPreviewLines = () => {
            <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
            <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
            <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+            <button 
+              onClick={() => {
+                const pwd = prompt("관리자 비밀번호를 입력하세요:");
+                if (pwd === "skmt0909!") {
+                  setActiveTab('admin_console');
+                } else if (pwd !== null) {
+                  alert("비밀번호가 일치하지 않습니다.");
+                }
+              }} 
+              className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'admin_console' ? 'bg-purple-600 text-white font-extrabold shadow-purple-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
+            >
+              <Settings className="w-4 h-4"/> 관리자 취합 콘솔
+            </button>
         </div>
         
         <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
@@ -2748,6 +3262,284 @@ const renderPreviewLines = () => {
         </div>
       </div>
       </div>
+      )}
+
+      {/* Admin Consolidated Console Tab View */}
+      {activeTab === 'admin_console' && (
+        <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="grid grid-cols-1 xl:grid-cols-[40%_60%] gap-4 lg:gap-6 flex-1 min-h-0">
+            {/* Left Panel: Submission Status Grid */}
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-12rem)] xl:h-[calc(100vh-8rem)]">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-purple-600 animate-spin-slow" />
+                    전체 교구 제출현황 및 제어
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">전국 교구와 협회 부서의 작성 현황을 확인하고 제어합니다.</p>
+                </div>
+                <button 
+                  onClick={async () => {
+                    const pwd = prompt("전체 교구의 데이터를 초기화하려면 비밀번호를 입력해 주세요:");
+                    if (pwd === "skmt0909!") {
+                      if (window.confirm("정말로 모든 교구와 협회의 주간보고 데이터를 초기화하시겠습니까? (이 작업은 되돌릴 수 없습니다)")) {
+                        const defaultData = { data: DEFAULT_REPORT, status: 'draft', lastSaved: null };
+                        for (const p of Object.keys(PARISH_CHURCH_MAP)) {
+                          for (const c of PARISH_CHURCH_MAP[p]) {
+                            const key = `report_${p}_${c}`;
+                            localStorage.setItem(key, JSON.stringify(defaultData));
+                            if (supabase) {
+                              try {
+                                await supabase.from('reports').upsert({ id: `${p}_${c}`, ...defaultData, updated_at: new Date().toISOString() });
+                              } catch(e){}
+                            }
+                          }
+                        }
+                        loadAllReportsStatus();
+                        alert("전 교구 및 협회 데이터가 전체 초기화되었습니다.");
+                      }
+                    } else if (pwd !== null) {
+                      alert("비밀번호가 일치하지 않습니다.");
+                    }
+                  }}
+                  className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg text-xs font-bold transition-colors"
+                >
+                  전체 데이터 초기화
+                </button>
+              </div>
+
+              {/* Parish Selector Tabs inside left panel */}
+              <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide snap-x whitespace-nowrap mb-4">
+                <button 
+                  onClick={() => setAdminActiveParish('전체')} 
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${adminActiveParish === '전체' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  전체보기
+                </button>
+                {Object.keys(PARISH_CHURCH_MAP).map(p => (
+                  <button 
+                    key={p}
+                    onClick={() => setAdminActiveParish(p)} 
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${adminActiveParish === p ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    {getDisplayParish(p)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Church submission list */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+                {Object.keys(PARISH_CHURCH_MAP)
+                  .filter(p => adminActiveParish === '전체' || adminActiveParish === p)
+                  .map(p => {
+                    const churches = PARISH_CHURCH_MAP[p];
+                    const submittedCount = churches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                    const draftCount = churches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'draft').length;
+                    
+                    return (
+                      <div key={p} className="bg-slate-50 border border-slate-200 rounded-xl p-4 transition-all hover:shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+                          <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                            {getDisplayParish(p)}
+                          </h3>
+                          <div className="flex gap-2 text-xs font-semibold text-slate-500">
+                            <span className="text-emerald-600">제출: {submittedCount}</span>
+                            <span className="text-amber-600">작성중: {draftCount}</span>
+                            <span className="text-slate-400 font-medium">미작성: {churches.length - submittedCount - draftCount}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {churches.map(c => {
+                            const currentStatus = adminReportStatusMap[`${p}_${c}`] || 'empty';
+                            const statusConfig = {
+                              submitted: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: '제출 완료', icon: '✅' },
+                              draft: { bg: 'bg-amber-50 text-amber-700 border-amber-200', label: '작성 중', icon: '📝' },
+                              empty: { bg: 'bg-slate-100 text-slate-400 border-slate-200', label: '미작성', icon: '⚪' }
+                            }[currentStatus];
+
+                            return (
+                              <div 
+                                key={c} 
+                                onClick={() => {
+                                  if (p === '협회') {
+                                    setActiveTab('association');
+                                    setParish('협회');
+                                    setChurch(c);
+                                  } else {
+                                    setActiveTab('report');
+                                    setParish(p);
+                                    setChurch(c);
+                                  }
+                                }}
+                                className={`px-2.5 py-2 border rounded-lg flex flex-col justify-between h-14 cursor-pointer hover:shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all ${statusConfig.bg}`}
+                              >
+                                <span className="text-xs font-bold truncate">{getDisplayChurch(c)}</span>
+                                <span className="text-[10px] font-black flex items-center gap-1 mt-0.5">
+                                  <span>{statusConfig.icon}</span>
+                                  {statusConfig.label}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Right Panel: Batch AI Review & Word compilation */}
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-12rem)] xl:h-[calc(100vh-8rem)]">
+              <div className="pb-4 border-b border-slate-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
+                    AI 종합 취합 및 통합 검토 콘솔
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">전국 보고서를 실시간으로 취합하여 일괄 AI 맞춤법 교정 및 마스터 워드 파일로 다운로드합니다.</p>
+                </div>
+              </div>
+
+              {/* Action Buttons Container */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+                <button
+                  disabled={isAdminCheckingAI}
+                  onClick={startAdminAiReview}
+                  className="relative overflow-hidden group bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                >
+                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex items-center gap-2">
+                    <Bot className={`w-5 h-5 ${isAdminCheckingAI ? 'animate-spin' : 'animate-bounce'}`} />
+                    <span className="text-base">전체 취합 AI 일괄 검토 시작</span>
+                  </div>
+                  <span className="text-[10px] text-purple-200 font-medium font-sans">실시간 데이터 100% 취합 + AI 문맥·오타 완벽 교정</span>
+                </button>
+
+                <button
+                  disabled={isAdminCheckingAI}
+                  onClick={exportMasterToWord}
+                  className="relative overflow-hidden group bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                >
+                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex items-center gap-2">
+                    <Download className="w-5 h-5" />
+                    <span className="text-base">통합 마스터 워드(.docx) 다운로드</span>
+                  </div>
+                  <span className="text-[10px] text-blue-200 font-medium font-sans">전국 모든 교구 + 협회 업무보고서 A4 한 권으로 즉시 출력</span>
+                </button>
+              </div>
+
+              {/* Live Loading/Progress indicator */}
+              {adminCompilationProgress && (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                  <div className="w-12 h-12 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin mb-4" />
+                  <p className="text-sm font-bold text-purple-700 animate-pulse">{adminCompilationProgress}</p>
+                  <p className="text-xs text-slate-400 mt-2">이 작업은 취합되는 보고서 수에 따라 최대 30초 정도 소요될 수 있습니다.</p>
+                </div>
+              )}
+
+              {/* Placeholder when idle */}
+              {!adminCompilationProgress && !adminAiCorrections && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                  <Sparkles className="w-16 h-16 text-indigo-300 opacity-40 mb-4 animate-pulse" />
+                  <h3 className="font-extrabold text-slate-700 text-base">취합 및 AI 일괄 검토 대기 중</h3>
+                  <p className="text-xs text-slate-400 mt-2 max-w-sm leading-relaxed">
+                    상단의 <strong>'전체 취합 AI 일괄 검토 시작'</strong> 버튼을 클릭하여 전국에서 수집된 보고서들을 실시간으로 수집하고 AI 문장 교정을 시작하세요.
+                  </p>
+                </div>
+              )}
+
+              {/* Suggestions list */}
+              {!adminCompilationProgress && adminAiCorrections && (
+                <div className="flex-1 flex flex-col min-h-0">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-purple-600" />
+                      AI 교정 제안 목록 ({adminAiCorrections.length}건 발견)
+                    </h3>
+                    <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1.5 rounded-full">실시간 완벽 편집 지원</span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0 pb-4">
+                    {adminAiCorrections.length === 0 ? (
+                      <div className="text-center py-12 text-slate-400 text-sm font-bold">오타나 수정이 필요한 어색한 항목이 전혀 발견되지 않았습니다. 완벽합니다! 🎉</div>
+                    ) : (
+                      adminAiCorrections.map((c: any, index: number) => {
+                        const key = `${c.parish}_${c.church}_${c.id}`;
+                        const isChecked = !!adminSelectedCorrections[key];
+
+                        return (
+                          <div 
+                            key={index} 
+                            onClick={() => toggleAdminCorrectionSelected(c.parish, c.church, c.id)}
+                            className={`border rounded-xl p-4 transition-all cursor-pointer hover:shadow-md select-none ${isChecked ? 'bg-indigo-50/50 border-indigo-200 shadow-sm' : 'bg-white border-slate-200 opacity-60'}`}
+                          >
+                            {/* Correction Header info */}
+                            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isChecked} 
+                                  onChange={() => {}} 
+                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-400 cursor-pointer"
+                                />
+                                <span className="text-xs font-black text-slate-800 bg-slate-100 px-2 py-1 rounded">
+                                  {getDisplayParish(c.parish)} &gt; {getDisplayChurch(c.church)}
+                                </span>
+                              </div>
+                              {c.reason && (
+                                <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                                  💡 {c.reason}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Side by side comparison */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs leading-relaxed">
+                              {/* Original */}
+                              <div className="bg-red-50/50 border border-red-100 p-3 rounded-lg flex flex-col gap-1">
+                                <span className="text-[10px] font-black text-red-600 select-none">수정 전 원본 내용</span>
+                                <span className="text-slate-700 font-medium font-sans break-all line-through">{c.original}</span>
+                              </div>
+                              {/* Corrected */}
+                              <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-lg flex flex-col gap-1">
+                                <span className="text-[10px] font-black text-emerald-600 select-none">AI 추천 교정 내용</span>
+                                <span className="text-slate-800 font-extrabold font-sans break-all">{c.corrected}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Actions footer bar inside right panel */}
+                  {adminAiCorrections.length > 0 && (
+                    <div className="pt-4 border-t border-slate-200 mt-2 flex items-center justify-end gap-3 bg-white">
+                      <button
+                        onClick={() => {
+                          setAdminAiCorrections(null);
+                        }}
+                        className="px-4 py-2.5 text-slate-500 hover:bg-slate-100 rounded-lg text-xs font-bold transition-all"
+                      >
+                        제안 닫기
+                      </button>
+                      <button
+                        onClick={applySelectedAdminCorrections}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-extrabold shadow-md shadow-indigo-100 transition-all flex items-center gap-1.5"
+                      >
+                        <Check className="w-4 h-4" />
+                        선택된 {Object.values(adminSelectedCorrections).filter(Boolean).length}개 제안 실시간 반영 및 데이터 적용
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* AI Review & Export Modal */}
