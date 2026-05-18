@@ -77,13 +77,23 @@ async function getOrCreateFolder(drive, name, parentId) {
 
 async function uploadOrUpdate(drive, filename, buffer, mimeType, folderId) {
   const safe = filename.replace(/'/g, "\\'");
-  const q = `name='${safe}' and '${folderId}' in parents and trashed=false`;
-  const existing = await drive.files.list({ q, fields: 'files(id)', spaces: 'drive' });
   const stream = Readable.from(buffer);
-  if (existing.data.files.length > 0) {
-    await drive.files.update({ fileId: existing.data.files[0].id, media: { mimeType, body: stream } });
-  } else {
+
+  if (filename.endsWith('.docx')) {
+    // Word 파일은 날짜가 달라도 같은 교구/교회 파일이면 기존 것 전부 삭제 후 새로 업로드
+    const prefix = filename.replace(/_\d{4}-\d{2}-\d{2}\.docx$/, '');
+    const q = `name contains '${prefix.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+    const existing = await drive.files.list({ q, fields: 'files(id)', spaces: 'drive' });
+    await Promise.all(existing.data.files.map(f => drive.files.delete({ fileId: f.id }).catch(() => {})));
     await drive.files.create({ requestBody: { name: filename, parents: [folderId] }, media: { mimeType, body: stream }, fields: 'id' });
+  } else {
+    const q = `name='${safe}' and '${folderId}' in parents and trashed=false`;
+    const existing = await drive.files.list({ q, fields: 'files(id)', spaces: 'drive' });
+    if (existing.data.files.length > 0) {
+      await drive.files.update({ fileId: existing.data.files[0].id, media: { mimeType, body: stream } });
+    } else {
+      await drive.files.create({ requestBody: { name: filename, parents: [folderId] }, media: { mimeType, body: stream }, fields: 'id' });
+    }
   }
 }
 
