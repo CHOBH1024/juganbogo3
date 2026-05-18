@@ -1772,12 +1772,6 @@ const renderPreviewLines = () => {
     });
   }
                       const resetActiveTabParishData = async () => {
-    const today = new Date().getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
-    if (![3, 4, 5, 6].includes(today)) {
-      alert("초기화는 수요일, 목요일, 금요일, 토요일에만 가능합니다.");
-      return;
-    }
-
     const password = prompt("초기화 비밀번호를 입력하세요:");
     if (password !== "skmt0909!") {
       if (password !== null) alert("비밀번호가 일치하지 않습니다.");
@@ -1874,12 +1868,6 @@ const renderPreviewLines = () => {
   };
 
   const resetAllData = async () => {
-    const today = new Date().getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
-    if (![3, 4, 5, 6].includes(today)) {
-      alert("전 교구 초기화는 수요일, 목요일, 금요일, 토요일에만 가능합니다.");
-      return;
-    }
-
     const password = prompt("전체 초기화 비밀번호를 입력하세요:");
     if (password !== "skmt0909!") {
       if (password !== null) alert("비밀번호가 일치하지 않습니다.");
