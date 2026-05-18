@@ -136,13 +136,16 @@ async function buildChurchSection(sectionNum, church, payload) {
     border: { bottom: { style: 'single', size: 6, color: 'BFDBFE' } },
   }));
 
-  const counters = [0, 0, 0, 0];
+  const KOR_CONSONANTS = ['가','나','다','라','마','바','사','아','자','차','카','타','파','하'];
+  const counters = [0, 0, 0, 0, 0, 0];
   for (const item of (payload.data || [])) {
     let prefix = '';
-    if (item.level === 0) { counters[0]++; counters[1]=0; counters[2]=0; counters[3]=0; prefix = counters[0] + '. '; }
-    else if (item.level === 1) { counters[1]++; counters[2]=0; counters[3]=0; prefix = counters[1] + ') '; }
-    else if (item.level === 2) { counters[2]++; counters[3]=0; prefix = toCircled(counters[2]) + ' '; }
-    else if (item.level === 3) { counters[3]++; prefix = '- '; }
+    if (item.level === 0) { counters[0]++; counters[1]=0; counters[2]=0; counters[3]=0; counters[4]=0; counters[5]=0; prefix = toRoman(counters[0]) + '. '; }
+    else if (item.level === 1) { counters[1]++; counters[2]=0; counters[3]=0; counters[4]=0; counters[5]=0; prefix = counters[1] + '. '; }
+    else if (item.level === 2) { counters[2]++; counters[3]=0; counters[4]=0; counters[5]=0; prefix = counters[2] + ') '; }
+    else if (item.level === 3) { counters[3]++; counters[4]=0; counters[5]=0; prefix = toCircled(counters[3]) + ' '; }
+    else if (item.level === 4) { counters[4]++; counters[5]=0; prefix = (KOR_CONSONANTS[counters[4]-1]||`(${counters[4]})`) + '. '; }
+    else if (item.level === 5) { counters[5]++; prefix = String.fromCharCode(96+counters[5]) + '. '; }
 
     const color = item.level === 0 ? '1D4ED8' : '000000';
     const indent = { left: item.level === 0 ? 0 : item.level * 360 };
