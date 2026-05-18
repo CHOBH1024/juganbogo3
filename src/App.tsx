@@ -9,14 +9,18 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianG
 import { parseHtmlTable } from './lib/tableParser';
 import { supabase } from './lib/supabase';
 
+const getLocalServerUrl = () => {
+  const customUrl = localStorage.getItem('LOCAL_SERVER_URL');
+  if (customUrl) return customUrl;
+  return 'http://localhost:5000';
+};
+
 // RLS 우회를 위한 Storage 기반 JSON DB 헬퍼 (로컬 및 클라우드 동시 지원)
 const fetchDbData = async (id: string) => {
   const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
   if (isLocal) {
     try {
-      const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? 'http://localhost:5000' 
-        : `http://${window.location.hostname}:5000`;
+      const serverUrl = getLocalServerUrl();
       const res = await fetch(`${serverUrl}/api/load-data/${id}`);
       if (res.ok) {
         return await res.json();
@@ -42,9 +46,7 @@ const saveDbData = async (id: string, payload: any) => {
   const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
   if (isLocal) {
     try {
-      const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-        ? 'http://localhost:5000' 
-        : `http://${window.location.hostname}:5000`;
+      const serverUrl = getLocalServerUrl();
       await fetch(`${serverUrl}/api/save-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -281,9 +283,7 @@ export default function App() {
       let pdfUrl = '';
       if (isLocalMode) {
         const filename = `notice_${Date.now()}.pdf`;
-        const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-          ? 'http://localhost:5000' 
-          : `http://${window.location.hostname}:5000`;
+        const serverUrl = getLocalServerUrl();
         const res = await fetch(`${serverUrl}/api/upload-image`, {
           method: 'POST',
           headers: {
@@ -335,9 +335,7 @@ export default function App() {
       let pdfUrl = '';
       if (isLocalMode) {
         const filename = `notice_pdf_${Date.now()}.pdf`;
-        const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-          ? 'http://localhost:5000' 
-          : `http://${window.location.hostname}:5000`;
+        const serverUrl = getLocalServerUrl();
         const res = await fetch(`${serverUrl}/api/upload-image`, {
           method: 'POST',
           headers: {
@@ -645,9 +643,7 @@ export default function App() {
       if (isLocalMode) {
         try {
           const filename = `${parish}_${church}_${Date.now()}.jpg`.replace(/\s+/g, '_');
-          const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-            ? 'http://localhost:5000' 
-            : `http://${window.location.hostname}:5000`;
+          const serverUrl = getLocalServerUrl();
           
           const res = await fetch(`${serverUrl}/api/upload-image`, {
             method: 'POST',
@@ -1227,9 +1223,7 @@ export default function App() {
 
       if (isLocalMode) {
         try {
-          const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-            ? 'http://localhost:5000' 
-            : `http://${window.location.hostname}:5000`;
+          const serverUrl = getLocalServerUrl();
           
           const res = await fetch(`${serverUrl}/api/ollama-chat`, {
             method: 'POST',
@@ -1943,7 +1937,27 @@ const renderPreviewLines = () => {
           >
             <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow ${isLocalMode ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
-          <span className={`transition-colors ${isLocalMode ? 'text-indigo-600 font-extrabold' : 'text-slate-400 font-medium'}`}>🏠 로컬 단독</span>
+          <span className={`transition-colors ${isLocalMode ? 'text-indigo-600 font-extrabold' : 'text-slate-400 font-medium'} flex items-center gap-1`}>
+            🏠 로컬 단독
+            {isLocalMode && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const currentUrl = localStorage.getItem('LOCAL_SERVER_URL') || 'http://localhost:5000';
+                  const nextUrl = prompt('로컬 서버 주소를 입력하세요 (PC 기본값: http://localhost:5000, 모바일/터널: https://자신의터널주소):', currentUrl);
+                  if (nextUrl !== null) {
+                    localStorage.setItem('LOCAL_SERVER_URL', nextUrl.trim() || 'http://localhost:5000');
+                    alert(`로컬 서버 주소가 저장되었습니다: ${nextUrl.trim() || 'http://localhost:5000'}`);
+                    window.location.reload();
+                  }
+                }}
+                className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                title="로컬 서버 주소 설정"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </span>
         </div>
       </div>
 
