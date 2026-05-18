@@ -68,12 +68,18 @@ const saveDbData = async (id: string, payload: any) => {
     }
   }
 
-  // Vercel 서버리스 함수로 Drive 업로드 (비동기 — 실패해도 무시)
-  fetch('/api/save-drive', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, payload })
-  }).catch(() => {});
+  // Vercel 서버리스 함수로 Drive 업로드 — 결과 반환
+  try {
+    const driveRes = await fetch('/api/save-drive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, payload })
+    });
+    const driveJson = await driveRes.json();
+    return driveJson?.success ? 'ok' : driveJson?.skipped ? 'skipped' : 'error';
+  } catch {
+    return 'error';
+  }
 };
 
 
@@ -207,6 +213,7 @@ export default function App() {
   const [jsonFormat, setJsonFormat] = useState<'flat' | 'tree'>('flat');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [driveSaveResult, setDriveSaveResult] = useState<'ok' | 'skipped' | 'error' | 'saving' | null>(null);
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [aiCorrections, setAiCorrections] = useState<any[] | null>(null);
 
@@ -1608,13 +1615,16 @@ export default function App() {
     
     if (supabase) {
       try {
-        await saveDbData(`${parish}_${church}`, {
+        setDriveSaveResult('saving');
+        const result = await saveDbData(`${parish}_${church}`, {
           id: `${parish}_${church}`,
           ...saveData,
           updated_at: new Date().toISOString()
         });
+        setDriveSaveResult(result as any || null);
       } catch (e) {
         console.error("Manual save failed", e);
+        setDriveSaveResult('error');
       }
     }
     setTimeout(() => setIsSaving(false), 600);
@@ -2608,10 +2618,21 @@ const renderPreviewLines = () => {
       {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
       <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0 overflow-hidden">
         
-        {/* Mobile Tab Switcher */}
-        <div className="flex xl:hidden mb-3 bg-white rounded-lg shadow-sm p-1 border border-slate-200">
-          <button onClick={() => setMobileView('editor')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'editor' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📝 작성창</button>
-          <button onClick={() => setMobileView('preview')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'preview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>👀 미리보기</button>
+        {/* Mobile Tab Switcher + 제출 버튼 */}
+        <div className="flex xl:hidden mb-3 gap-2">
+          <div className="flex flex-1 bg-white rounded-lg shadow-sm p-1 border border-slate-200">
+            <button onClick={() => setMobileView('editor')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'editor' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📝 작성창</button>
+            <button onClick={() => setMobileView('preview')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'preview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>👀 미리보기</button>
+          </div>
+          {activeTab !== 'notice_write' && (
+            <button
+              onClick={() => handleSave(status !== 'submitted')}
+              disabled={isSaving}
+              className={`shrink-0 px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors ${status === 'submitted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+            >
+              {isSaving ? '저장중' : status === 'submitted' ? '✅ 제출됨' : '제출 확정'}
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0">
@@ -3240,10 +3261,20 @@ const renderPreviewLines = () => {
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">↑/↓</kbd>이동</span>
             </div>
             <div className="flex items-center justify-between px-1 pb-1">
-              <span className="text-xs text-slate-500 font-medium flex items-center">
-                {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5 text-blue-500" />}
-                {isSaving ? '저장 중...' : lastSaved ? `${lastSaved} 자동 저장됨` : '자동 저장 대기 중'}
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-slate-500 font-medium flex items-center">
+                  {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5 text-blue-500" />}
+                  {isSaving ? '저장 중...' : lastSaved ? `${lastSaved} 자동 저장됨` : '자동 저장 대기 중'}
+                </span>
+                {driveSaveResult && (
+                  <span className={`text-[11px] font-semibold flex items-center gap-1 ${driveSaveResult === 'ok' ? 'text-emerald-600' : driveSaveResult === 'saving' ? 'text-blue-500' : driveSaveResult === 'skipped' ? 'text-slate-400' : 'text-red-500'}`}>
+                    {driveSaveResult === 'ok' && '☁️ 구글 드라이브 저장 완료'}
+                    {driveSaveResult === 'saving' && '☁️ 드라이브 저장 중...'}
+                    {driveSaveResult === 'skipped' && '☁️ 드라이브 미연결'}
+                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패'}
+                  </span>
+                )}
+              </div>
               <button 
                 onClick={handleReset}
                 className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
