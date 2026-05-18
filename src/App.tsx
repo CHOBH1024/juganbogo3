@@ -1630,6 +1630,8 @@ export default function App() {
         setDriveSaveResult('saving');
         const result = await saveDbData(`${parish}_${church}`, {
           id: `${parish}_${church}`,
+          parish,
+          church,
           ...saveData,
           updated_at: new Date().toISOString()
         });

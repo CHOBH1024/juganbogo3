@@ -263,10 +263,10 @@ export default async function handler(req, res) {
 
   const { id, payload } = req.body;
   if (!id?.startsWith('report_')) return res.status(200).json({ skipped: true });
-  const parts = id.split('_');
-  if (parts.length < 3) return res.status(200).json({ skipped: true });
-  const parish = parts[1];
-  const church = parts[2];
+  // payload에 parish/church가 명시돼 있으면 직접 사용, 없으면 id에서 추출
+  const parish = payload?.parish || id.replace(/^report_/, '').split('_')[0];
+  const church = payload?.church || id.replace(/^report_/, '').split('_').slice(1).join('_');
+  if (!parish || !church) return res.status(200).json({ skipped: true });
   const cleanChurch = toKey(church);
 
   try {
