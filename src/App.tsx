@@ -219,6 +219,7 @@ export default function App() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [driveSaveResult, setDriveSaveResult] = useState<'ok' | 'skipped' | 'error' | 'saving' | null>(null);
+  const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [aiCorrections, setAiCorrections] = useState<any[] | null>(null);
 
@@ -1633,6 +1634,7 @@ export default function App() {
           updated_at: new Date().toISOString()
         });
         setDriveSaveResult(result as any || null);
+        if (result === 'ok') setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       } catch (e) {
         console.error("Manual save failed", e);
         setDriveSaveResult('error');
@@ -3031,26 +3033,28 @@ const renderPreviewLines = () => {
                     item.level === 5 ? `${toLatin(editorCounters[5])}.` : '';
                   return (
                   <div key={item.id} className="flex flex-col gap-1 group">
-                    <div className="flex items-center gap-2">
-                    <div style={{ width: `${(item.level - 1) * 24}px` }} className="shrink-0 transition-all duration-200" />
-                    <span className="text-[10px] font-bold text-slate-400 w-6 shrink-0 select-none text-right">
-                      {lvlPrefix}
-                    </span>
-                    <TextareaAutosize
-                      id={`input-${item.id}`}
-                      value={item.text}
-                      onChange={(e) => updateText(item.id, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, item.id, index)}
-                      onPaste={(e) => handlePaste(e, item.id)}
-                      placeholder="항목 내용을 입력하세요 (구분된 데이터 붙여넣기 시 표 생성)"
-                      minRows={1}
-                      className="flex-1 px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors resize-none leading-relaxed"
-                    />
+                    <div className="flex items-center gap-1">
+                    <div style={{ width: `${(item.level - 1) * 20}px` }} className="shrink-0 transition-all duration-200" />
+                    <div className={`flex items-center flex-1 rounded-md border transition-colors focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 focus-within:bg-white bg-slate-50 border-slate-200`}>
+                      <span className={`pl-2.5 pr-1 py-2.5 text-sm font-bold shrink-0 select-none whitespace-nowrap ${item.level === 1 ? 'text-blue-700' : item.level === 2 ? 'text-slate-700' : 'text-slate-500'}`}>
+                        {lvlPrefix}
+                      </span>
+                      <TextareaAutosize
+                        id={`input-${item.id}`}
+                        value={item.text}
+                        onChange={(e) => updateText(item.id, e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, item.id, index)}
+                        onPaste={(e) => handlePaste(e, item.id)}
+                        placeholder="항목 내용을 입력하세요"
+                        minRows={1}
+                        className="flex-1 pr-3 py-2.5 text-sm bg-transparent border-none outline-none focus:ring-0 resize-none leading-relaxed"
+                      />
+                    </div>
                   </div>
 
-                  <div 
+                  <div
                     className="flex items-center flex-wrap gap-2 transition-all duration-200 opacity-0 max-h-0 overflow-hidden group-focus-within:opacity-100 group-focus-within:max-h-24 group-focus-within:mt-1 group-hover:opacity-100 group-hover:max-h-24 group-hover:mt-1"
-                    style={{ paddingLeft: `${(item.level - 1) * 24 + 32}px` }}
+                    style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}
                   >
                     <button onClick={() => changeLevel(item.id, -1)} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition-colors" title="상위 수준 (Shift+Tab)">
                       <ArrowLeft className="w-3.5 h-3.5" /> 내어쓰기
@@ -3074,7 +3078,7 @@ const renderPreviewLines = () => {
                   </div>
                   {item.image && (
                     <div className="flex items-center gap-2 mt-1">
-                      <div style={{ width: `${(item.level - 1) * 24 + 32}px` }} className="shrink-0" />
+                      <div style={{ width: `${(item.level - 1) * 20 + 4}px` }} className="shrink-0" />
                       <div className="relative inline-block group/img">
                         <img src={item.image} alt="첨부" className="h-24 object-contain rounded border border-slate-200" />
                         <button 
@@ -3087,7 +3091,7 @@ const renderPreviewLines = () => {
                     </div>
                   )}
                   {item.tableData && (
-                    <div className="mt-2 text-slate-700" style={{ paddingLeft: `${(item.level - 1) * 24 + 32}px` }}>
+                    <div className="mt-2 text-slate-700" style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}>
                       <div className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
                         <div className="flex justify-between items-center bg-slate-50 px-2 py-1.5 border-b border-slate-200">
                           <div className="flex items-center gap-2">
@@ -3305,10 +3309,10 @@ const renderPreviewLines = () => {
                 </span>
                 {driveSaveResult && (
                   <span className={`text-[11px] font-semibold flex items-center gap-1 ${driveSaveResult === 'ok' ? 'text-emerald-600' : driveSaveResult === 'saving' ? 'text-blue-500' : driveSaveResult === 'skipped' ? 'text-slate-400' : 'text-red-500'}`}>
-                    {driveSaveResult === 'ok' && '☁️ 구글 드라이브 저장 완료'}
+                    {driveSaveResult === 'ok' && `☁️ 구글 드라이브 저장 완료${driveSavedAt ? ` · ${driveSavedAt}` : ''}`}
                     {driveSaveResult === 'saving' && '☁️ 드라이브 저장 중...'}
-                    {driveSaveResult === 'skipped' && '☁️ 드라이브 미연결'}
-                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패'}
+                    {driveSaveResult === 'skipped' && '⚠️ 드라이브 미연결 — /api/google-auth 에서 인증 필요'}
+                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패 — 관리자 문의'}
                   </span>
                 )}
               </div>
