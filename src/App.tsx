@@ -1037,7 +1037,7 @@ export default function App() {
   // Load data when parish or church changes
   useEffect(() => {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
-    
+
     const loadData = async () => {
       const key = `report_${parish}_${church}`;
       const savedLocal = localStorage.getItem(key);
@@ -1045,7 +1045,7 @@ export default function App() {
       if (savedLocal) {
         try { localParsed = JSON.parse(savedLocal); } catch(e){}
       }
-      
+
       if (localParsed) {
          setReportData(localParsed.data && localParsed.data.length > 0 ? localParsed.data : DEFAULT_REPORT);
          setLastSaved(localParsed.lastSaved || null);
@@ -1057,12 +1057,12 @@ export default function App() {
          setLastSaved(null);
          setStatus('draft');
       }
-      
+
       // Fetch from Supabase (Storage DB) to get latest if exists
       if (supabase) {
          try {
             const supaData = await fetchDbData(`${parish}_${church}`);
-              
+
             if (supaData) {
                setReportData(supaData.data && supaData.data.length > 0 ? supaData.data : DEFAULT_REPORT);
                setLastSaved(supaData.lastSaved || null);
@@ -1070,11 +1070,34 @@ export default function App() {
                const maxId = Math.max(4, ...(supaData.data || DEFAULT_REPORT).map((d: any) => d.id));
                setNextId(maxId + 1);
                localStorage.setItem(key, JSON.stringify(supaData));
+               setAiCorrections(null);
+               return;
             }
          } catch(e) {
             console.error("Supabase load failed", e);
          }
       }
+
+      // Drive에서 불러오기 (localStorage/Supabase에 없을 때)
+      try {
+        const driveRes = await fetch(`/api/load-report?parish=${encodeURIComponent(parish)}&church=${encodeURIComponent(church)}`);
+        if (driveRes.ok) {
+          const { found, payload } = await driveRes.json();
+          if (found && payload) {
+            setReportData(payload.data && payload.data.length > 0 ? payload.data : DEFAULT_REPORT);
+            setLastSaved(payload.lastSaved || null);
+            setStatus(payload.status || 'draft');
+            const maxId = Math.max(4, ...(payload.data || DEFAULT_REPORT).map((d: any) => d.id));
+            setNextId(maxId + 1);
+            localStorage.setItem(key, JSON.stringify(payload));
+            setDriveSaveResult('ok');
+            setDriveSavedAt('Drive에서 불러옴');
+          }
+        }
+      } catch(e) {
+        console.error("Drive load failed", e);
+      }
+
       setAiCorrections(null);
     };
     loadData();
