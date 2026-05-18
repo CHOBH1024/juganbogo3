@@ -321,6 +321,7 @@ async function saveTextDocument(id, payload) {
 
   const dataToUse = payload.data || [];
   const counters = [0, 0, 0, 0];
+  let imageCounter = 0;
 
   for (const item of dataToUse) {
     let prefix = "";
@@ -340,6 +341,47 @@ async function saveTextDocument(id, payload) {
 
     const indent = "  ".repeat(item.level);
     textContent += `${indent}${prefix}${item.text || ''}\n`;
+
+    // 사진(Image) 추출 및 구글 드라이브 폴더 일대일 물리 저장 (Gemini가 파일 업로드 시 텍스트와 이미지 매핑 가능하도록 처리)
+    if (item.image) {
+      try {
+        let imageBuffer = null;
+        let ext = 'png';
+        if (item.image.startsWith("http")) {
+          const urlParts = item.image.split('/uploads/');
+          if (urlParts.length > 1) {
+            const localPath = path.join(UPLOADS_DIR, urlParts[1]);
+            if (fs.existsSync(localPath)) {
+              imageBuffer = fs.readFileSync(localPath);
+              const extPart = urlParts[1].split('.');
+              if (extPart.length > 1) ext = extPart[extPart.length - 1];
+            }
+          }
+        } else if (item.image.startsWith("data:image")) {
+          const mimePart = item.image.split(';')[0];
+          if (mimePart.includes('jpeg') || mimePart.includes('jpg')) ext = 'jpg';
+          else if (mimePart.includes('gif')) ext = 'gif';
+          
+          const base64Data = item.image.split(",")[1];
+          imageBuffer = Buffer.from(base64Data, 'base64');
+        }
+
+        if (imageBuffer) {
+          imageCounter++;
+          const cleanParishName = parish.replace(/[\/\\?%*:|"<>. ]/g, '_');
+          const cleanChurchName = church.replace(/[\/\\?%*:|"<>. ]/g, '_');
+          const imgFilename = `[${cleanParishName}_${cleanChurchName}]_사진_${imageCounter}.${ext}`;
+          const imgFilePath = path.join(gDriveDir, imgFilename);
+          fs.writeFileSync(imgFilePath, imageBuffer);
+          
+          // 텍스트 파일 내에 사진 파일명을 마크다운 이미지 링크 포맷으로 박아두어 Gemini가 사진과 텍스트 문맥을 100% 매칭하도록 지원
+          textContent += `${indent}![첨부사진](./${imgFilename})\n`;
+          textContent += `${indent}[참부 사진 파일명: ${imgFilename}]\n`;
+        }
+      } catch (imgError) {
+        console.error("[GoogleDriveSync] Failed to save inline image:", imgError);
+      }
+    }
 
     // 표 데이터 텍스트 포맷 (MarkDown 표 규격 준수 - Gemini 분석 정확도 100%)
     if (item.tableData && item.tableData.length > 0) {
