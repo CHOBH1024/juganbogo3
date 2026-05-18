@@ -253,6 +253,24 @@ export default function App() {
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
   const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
 
+  // Google Drive 연동 상태
+  const [driveStatus, setDriveStatus] = useState<{ configured: boolean; authenticated: boolean; hasRefreshToken: boolean; folderId: string | null } | null>(null);
+  const [driveStatusLoading, setDriveStatusLoading] = useState(false);
+  const [showAiStudioGuide, setShowAiStudioGuide] = useState(false);
+
+  const checkDriveStatus = async () => {
+    setDriveStatusLoading(true);
+    try {
+      const serverUrl = getLocalServerUrl();
+      const res = await fetch(`${serverUrl}/api/google-auth/status`);
+      if (res.ok) setDriveStatus(await res.json());
+    } catch {
+      setDriveStatus(null);
+    } finally {
+      setDriveStatusLoading(false);
+    }
+  };
+
   const loadNotices = async () => {
     try {
       const parsed = await fetchDbData('SYSTEM_NOTICES');
@@ -495,6 +513,7 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'admin_console') {
       loadAllReportsStatus();
+      checkDriveStatus();
     }
   }, [activeTab, parish, church, status, reportData]);
 
@@ -3400,6 +3419,118 @@ const renderPreviewLines = () => {
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">전국 보고서를 실시간으로 취합하여 일괄 AI 맞춤법 교정 및 마스터 워드 파일로 다운로드합니다.</p>
                 </div>
+              </div>
+
+              {/* ── Google Drive · AI Studio 연동 상태 + 사용 가이드 ── */}
+              <div className="mb-5">
+                {/* 상태 배너 */}
+                <div className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mb-3">
+                  <div className="flex items-center gap-2.5">
+                    {driveStatusLoading ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin" />
+                    ) : driveStatus?.authenticated ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow shadow-emerald-200 animate-pulse" />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                    )}
+                    <div>
+                      <p className="text-xs font-black text-slate-700">
+                        Google Drive 연동 상태:{' '}
+                        <span className={driveStatus?.authenticated ? 'text-emerald-600' : 'text-red-500'}>
+                          {driveStatusLoading ? '확인 중...' : driveStatus?.authenticated ? '✅ 연결됨 — 보고서 제출 시 자동 업로드' : driveStatus?.configured ? '⚠️ Refresh Token 미설정' : '❌ 미연결 (설정 필요)'}
+                        </span>
+                      </p>
+                      {driveStatus?.folderId && (
+                        <p className="text-[10px] text-slate-400 mt-0.5">폴더 ID: {driveStatus.folderId}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={checkDriveStatus}
+                      className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors"
+                      title="상태 새로고침"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                    {!driveStatus?.authenticated && (
+                      <a
+                        href={`${getLocalServerUrl()}/api/google-auth`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg transition-colors"
+                      >
+                        Drive 연동 설정
+                      </a>
+                    )}
+                    <button
+                      onClick={() => setShowAiStudioGuide(v => !v)}
+                      className="px-3 py-1.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      AI Studio 사용법
+                    </button>
+                  </div>
+                </div>
+
+                {/* AI Studio 단계별 가이드 (토글) */}
+                {showAiStudioGuide && (
+                  <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-black text-violet-800 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Google AI Studio에서 보고서 AI 검토 · 다운로드 방법
+                      </h3>
+                      <button onClick={() => setShowAiStudioGuide(false)} className="p-1 rounded hover:bg-violet-100 text-violet-400 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {[
+                        { step: '1', icon: '📤', title: '보고서 제출', desc: '각 교구·부서에서 보고서를 제출하면 Drive에 자동 업로드됩니다. (.docx + .txt)' },
+                        { step: '2', icon: '🌐', title: 'AI Studio 접속', desc: 'Google AI Studio(aistudio.google.com)에 접속 — GitHub 연결된 빌드앱을 엽니다.' },
+                        { step: '3', icon: '📁', title: 'Drive 파일 연결', desc: 'AI Studio 채팅창 하단 "파일 추가" → Google Drive → 주간보고_제출현황 폴더에서 .docx 파일 선택' },
+                        { step: '4', icon: '🤖', title: 'AI 검토 요청', desc: '"이 문서를 맞춤법·문체 검토하고 교정본을 워드 파일로 다운로드할 수 있게 정리해줘" 입력' },
+                        { step: '5', icon: '⬇️', title: '완료본 다운로드', desc: 'AI가 검토·교정한 최종 워드 파일을 그대로 다운로드합니다. 서식 유지됨.' },
+                      ].map(({ step, icon, title, desc }) => (
+                        <div key={step} className="flex gap-3 bg-white/70 border border-violet-100 rounded-lg p-3">
+                          <div className="w-6 h-6 rounded-full bg-violet-600 text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">{step}</div>
+                          <div>
+                            <p className="font-black text-slate-800 flex items-center gap-1">{icon} {title}</p>
+                            <p className="text-slate-500 leading-relaxed mt-0.5">{desc}</p>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* AI Studio 바로가기 버튼 */}
+                      <div className="flex flex-col gap-2 justify-center bg-white/70 border border-violet-100 rounded-lg p-3">
+                        <a
+                          href="https://aistudio.google.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-bold rounded-lg text-xs transition-all shadow-sm"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Google AI Studio 바로가기 →
+                        </a>
+                        <a
+                          href="https://drive.google.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs transition-all"
+                        >
+                          <Folder className="w-3.5 h-3.5 text-emerald-600" />
+                          Google Drive 바로가기 →
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-800 font-semibold">
+                      💡 <strong>팁:</strong> Drive가 연결된 상태에서 보고서를 제출하면 <code className="bg-amber-100 px-1 rounded">주간보고_제출현황/{'{교구명}'}/</code> 폴더에 자동 저장됩니다. AI Studio에서 해당 폴더를 즐겨찾기해두면 매주 바로 접근 가능합니다.
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons Container */}
