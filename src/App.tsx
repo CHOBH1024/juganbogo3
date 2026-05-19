@@ -486,9 +486,19 @@ export default function App() {
   // --- 관리자 콘솔 전용 핵심 로직 ---
   const getReportDataFor = async (p: string, c: string) => {
     const key = `report_${p}_${c}`;
+
+    // 1. 세션 캐시 (Drive 호출 스킵)
+    const session = sessionStorage.getItem(key);
+    if (session) { try { return JSON.parse(session); } catch(e){} }
+
+    // 2. localStorage
     const local = localStorage.getItem(key);
     if (local) {
-      try { return JSON.parse(local); } catch(e){}
+      try {
+        const parsed = JSON.parse(local);
+        sessionStorage.setItem(key, local);
+        return parsed;
+      } catch(e){}
     }
     if (isLocalMode) {
       try {
@@ -504,17 +514,19 @@ export default function App() {
           const text = await data.text();
           const parsed = JSON.parse(text);
           localStorage.setItem(key, JSON.stringify(parsed));
+          sessionStorage.setItem(key, JSON.stringify(parsed));
           return parsed;
         }
       } catch(e){}
     }
-    // Drive 폴백 — 다른 브라우저 / 캐시 없을 때
+    // 3. Drive 폴백
     try {
       const res = await fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`);
       if (res.ok) {
         const { found, payload } = await res.json();
         if (found && payload) {
           localStorage.setItem(key, JSON.stringify(payload));
+          sessionStorage.setItem(key, JSON.stringify(payload));
           return payload;
         }
       }
@@ -1112,6 +1124,25 @@ export default function App() {
       }
 
       setAiCorrections(null);
+
+      // 백그라운드 프리로드: 같은 교구 내 다른 교회를 미리 Drive에서 캐시
+      const churches = PARISH_CHURCH_MAP[parish] || [];
+      churches.forEach((c: string) => {
+        if (c === church) return;
+        const sessionKey = `report_${parish}_${c}`;
+        if (sessionStorage.getItem(sessionKey) || localStorage.getItem(sessionKey)) return;
+        // 이미 캐시된 교회는 스킵, 없는 교회만 백그라운드 로드
+        fetch(`/api/load-report?parish=${encodeURIComponent(parish)}&church=${encodeURIComponent(c)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(json => {
+            if (json?.found && json?.payload) {
+              const str = JSON.stringify(json.payload);
+              localStorage.setItem(sessionKey, str);
+              sessionStorage.setItem(sessionKey, str);
+            }
+          })
+          .catch(() => {});
+      });
     };
     loadData();
   }, [parish, church, activeTab, isLocalMode]);
@@ -1806,12 +1837,16 @@ export default function App() {
     try {
       const churches = PARISH_CHURCH_MAP[parish] || [church];
 
-      // 모든 교회 데이터를 병렬로 Drive에서 취합
+      // 제출 완료 교회만 + 세션 캐시 우선으로 병렬 취합
       const results = await Promise.all(
         churches.map(async (c) => {
-          if (c === church) return { c, data: getCleanData(reportData) };
+          if (c === church) {
+            if (status !== 'submitted') return { c, data: [] }; // 현재 교회도 미제출이면 스킵
+            return { c, data: getCleanData(reportData) };
+          }
           const report = await getReportDataFor(parish, c);
-          return { c, data: report?.data ? getCleanData(report.data) : [] };
+          if (!report || report.status !== 'submitted') return { c, data: [] }; // 미제출 스킵
+          return { c, data: report.data ? getCleanData(report.data) : [] };
         })
       );
 
