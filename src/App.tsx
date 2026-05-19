@@ -3447,11 +3447,13 @@ const renderPreviewLines = () => {
             <button
               onClick={() => {
                 if (isDownloadUnlocked) { checkWithAI(); return; }
-                const pwd = prompt('다운로드 비밀번호를 입력하세요:');
+                const pwd = prompt('비밀번호를 입력하세요:');
                 if (pwd === 'skmt0909!') {
                   setIsDownloadUnlocked(true);
                   sessionStorage.setItem('download_unlocked', '1');
                   checkWithAI();
+                } else if (pwd === 'samu') {
+                  exportToWord();
                 } else if (pwd !== null) {
                   alert('비밀번호가 일치하지 않습니다.');
                 }

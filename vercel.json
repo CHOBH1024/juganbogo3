@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/save-drive.js": { "maxDuration": 60 }
+    "api/save-drive.js": { "maxDuration": 60 },
+    "api/load-report.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
