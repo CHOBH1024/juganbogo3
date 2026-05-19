@@ -577,6 +577,23 @@ export default function App() {
     if (activeTab === 'admin_console') {
       loadAllReportsStatus();
       checkDriveStatus();
+      // 관리자 콘솔 진입 시 전 교구·전 교회 데이터를 백그라운드로 미리 캐시
+      Object.entries(PARISH_CHURCH_MAP).forEach(([p, churches]) => {
+        (churches as string[]).forEach((c: string) => {
+          const key = `report_${p}_${c}`;
+          if (sessionStorage.getItem(key) || localStorage.getItem(key)) return;
+          fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(json => {
+              if (json?.found && json?.payload) {
+                const str = JSON.stringify(json.payload);
+                localStorage.setItem(key, str);
+                sessionStorage.setItem(key, str);
+              }
+            })
+            .catch(() => {});
+        });
+      });
     }
   }, [activeTab, parish, church, status, reportData]);
 
