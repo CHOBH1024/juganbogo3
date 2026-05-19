@@ -573,23 +573,27 @@ export default function App() {
     setAdminAiCorrections(null);
 
     try {
-      let allAdminPayload: any[] = [];
       const parishes = Object.keys(PARISH_CHURCH_MAP);
+      setAdminCompilationProgress("전국 교구 및 협회 보고서 Drive에서 병렬 취합 중...");
 
-      for (const p of parishes) {
-        setAdminCompilationProgress(`[${getDisplayParish(p)}] 보고서 분석 중...`);
-        for (const c of PARISH_CHURCH_MAP[p]) {
-          let dataToUse: ReportItem[] = [];
-          if (p === parish && c === church) {
-            dataToUse = getCleanData(reportData);
-          } else {
-            const report = await getReportDataFor(p, c);
-            if (report && report.data) {
-              dataToUse = getCleanData(report.data);
-            }
-          }
-          
-          dataToUse.filter(item => item.text.trim() !== "").forEach(item => {
+      // 교구별 병렬, 교구 내 교회도 병렬로 Drive 취합
+      const parishResults = await Promise.all(
+        parishes.map(async (p) => {
+          const churchResults = await Promise.all(
+            PARISH_CHURCH_MAP[p].map(async (c) => {
+              if (p === parish && c === church) return { p, c, data: getCleanData(reportData) };
+              const report = await getReportDataFor(p, c);
+              return { p, c, data: report?.data ? getCleanData(report.data) : [] };
+            })
+          );
+          return churchResults;
+        })
+      );
+
+      const allAdminPayload: any[] = [];
+      for (const churchResults of parishResults) {
+        for (const { p, c, data } of churchResults) {
+          data.filter((item: ReportItem) => item.text.trim() !== "").forEach((item: ReportItem) => {
             allAdminPayload.push({ parish: p, church: c, id: item.id, text: item.text });
           });
         }
@@ -1800,19 +1804,22 @@ export default function App() {
     setAiCorrections(null);
 
     try {
-      let allPayload: any[] = [];
       const churches = PARISH_CHURCH_MAP[parish] || [church];
-      for (const c of churches) {
-         let dataToUse: ReportItem[] = [];
-         if (c === church) {
-            dataToUse = getCleanData(reportData);
-         } else {
-            const report = await getReportDataFor(parish, c);
-            if (report?.data) dataToUse = getCleanData(report.data);
-         }
-         dataToUse.filter(item => item.text.trim() !== "").forEach(item => {
-             allPayload.push({ church: c, id: item.id, text: item.text });
-         });
+
+      // 모든 교회 데이터를 병렬로 Drive에서 취합
+      const results = await Promise.all(
+        churches.map(async (c) => {
+          if (c === church) return { c, data: getCleanData(reportData) };
+          const report = await getReportDataFor(parish, c);
+          return { c, data: report?.data ? getCleanData(report.data) : [] };
+        })
+      );
+
+      const allPayload: any[] = [];
+      for (const { c, data } of results) {
+        data.filter((item: ReportItem) => item.text.trim() !== "").forEach((item: ReportItem) => {
+          allPayload.push({ church: c, id: item.id, text: item.text });
+        });
       }
 
       const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
