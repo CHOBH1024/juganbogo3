@@ -488,17 +488,13 @@ export default function App() {
     const key = `report_${p}_${c}`;
     const local = localStorage.getItem(key);
     if (local) {
-      try {
-        return JSON.parse(local);
-      } catch(e){}
+      try { return JSON.parse(local); } catch(e){}
     }
     if (isLocalMode) {
       try {
         const serverUrl = getLocalServerUrl();
         const res = await fetch(`${serverUrl}/api/load-data/${key}`);
-        if (res.ok) {
-          return await res.json();
-        }
+        if (res.ok) return await res.json();
       } catch(e){}
     }
     if (supabase) {
@@ -506,10 +502,23 @@ export default function App() {
         const { data, error } = await supabase.storage.from('images').download(`db_reports/${p}_${c}.json`);
         if (!error && data) {
           const text = await data.text();
-          return JSON.parse(text);
+          const parsed = JSON.parse(text);
+          localStorage.setItem(key, JSON.stringify(parsed));
+          return parsed;
         }
       } catch(e){}
     }
+    // Drive 폴백 — 다른 브라우저 / 캐시 없을 때
+    try {
+      const res = await fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`);
+      if (res.ok) {
+        const { found, payload } = await res.json();
+        if (found && payload) {
+          localStorage.setItem(key, JSON.stringify(payload));
+          return payload;
+        }
+      }
+    } catch(e){}
     return null;
   };
 
@@ -1798,11 +1807,8 @@ export default function App() {
          if (c === church) {
             dataToUse = getCleanData(reportData);
          } else {
-            const key = `report_${parish}_${c}`;
-            const saved = localStorage.getItem(key);
-            if (saved) {
-               try { dataToUse = getCleanData(JSON.parse(saved).data || []); } catch(e){}
-            }
+            const report = await getReportDataFor(parish, c);
+            if (report?.data) dataToUse = getCleanData(report.data);
          }
          dataToUse.filter(item => item.text.trim() !== "").forEach(item => {
              allPayload.push({ church: c, id: item.id, text: item.text });
