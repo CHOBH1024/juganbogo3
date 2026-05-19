@@ -264,6 +264,7 @@ export default function App() {
   };
   const [notices, setNotices] = useState<any[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isDownloadUnlocked, setIsDownloadUnlocked] = useState(() => sessionStorage.getItem('download_unlocked') === '1');
   const [activeNotice, setActiveNotice] = useState<any | null>(null);
   const [isUploadingNotice, setIsUploadingNotice] = useState(false);
 
@@ -576,6 +577,23 @@ export default function App() {
     if (activeTab === 'admin_console') {
       loadAllReportsStatus();
       checkDriveStatus();
+      // 관리자 콘솔 진입 시 전 교구·전 교회 데이터를 백그라운드로 미리 캐시
+      Object.entries(PARISH_CHURCH_MAP).forEach(([p, churches]) => {
+        (churches as string[]).forEach((c: string) => {
+          const key = `report_${p}_${c}`;
+          if (sessionStorage.getItem(key) || localStorage.getItem(key)) return;
+          fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(json => {
+              if (json?.found && json?.payload) {
+                const str = JSON.stringify(json.payload);
+                localStorage.setItem(key, str);
+                sessionStorage.setItem(key, str);
+              }
+            })
+            .catch(() => {});
+        });
+      });
     }
   }, [activeTab, parish, church, status, reportData]);
 
@@ -3426,8 +3444,18 @@ const renderPreviewLines = () => {
                 </>
               )}
             </div>
-            <button 
-              onClick={checkWithAI}
+            <button
+              onClick={() => {
+                if (isDownloadUnlocked) { checkWithAI(); return; }
+                const pwd = prompt('다운로드 비밀번호를 입력하세요:');
+                if (pwd === 'skmt0909!') {
+                  setIsDownloadUnlocked(true);
+                  sessionStorage.setItem('download_unlocked', '1');
+                  checkWithAI();
+                } else if (pwd !== null) {
+                  alert('비밀번호가 일치하지 않습니다.');
+                }
+              }}
               className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-medium shadow-sm transition-colors"
             >
               <Bot className="w-5 h-5" />
