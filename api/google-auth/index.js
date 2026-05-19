@@ -20,7 +20,7 @@ export default function handler(req, res) {
     client_id: clientId,
     redirect_uri: callbackUrl,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: 'https://www.googleapis.com/auth/drive',
     access_type: 'offline',
     prompt: 'consent',
   });
