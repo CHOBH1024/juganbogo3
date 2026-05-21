@@ -3,7 +3,6 @@ import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Che
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
-import mammoth from 'mammoth';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
@@ -231,7 +230,6 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
-  const docUploadRef = useRef<HTMLInputElement>(null);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
@@ -1183,35 +1181,6 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
 
-  // 전역 붙여넣기: 포커스 없어도 화면 캡처/이미지 Ctrl+V로 새 항목 추가
-  useEffect(() => {
-    const onGlobalPaste = (e: ClipboardEvent) => {
-      const active = document.activeElement;
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return; // 입력란 포커스 중이면 각자 핸들러 처리
-      const imageItem = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
-      if (!imageItem) return;
-      e.preventDefault();
-      const file = imageItem.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          setReportData(prev => {
-            const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
-            setNextId(newId + 1);
-            return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
-          });
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
-    };
-    document.addEventListener('paste', onGlobalPaste);
-    return () => document.removeEventListener('paste', onGlobalPaste);
-  }, []);
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1371,130 +1340,6 @@ export default function App() {
       }
       return item;
     }));
-  };
-
-  const importDocumentFile = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    let items: ReportItem[] = [];
-    let idCounter = Date.now();
-    const nextItemId = () => idCounter++;
-
-    const makeItem = (text: string, level: number, image?: string, imageWidth?: number, imageHeight?: number, tableData?: string[][]): ReportItem => ({
-      id: nextItemId(), text, level,
-      ...(image ? { image, imageWidth, imageHeight } : {}),
-      ...(tableData ? { tableData, tableHighlights: tableData.map(r => r.map(() => false)), chartType: 'none' as const } : {}),
-    });
-
-    const parseHtmlToItems = (html: string, imgMap: Map<string, string>): ReportItem[] => {
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const result: ReportItem[] = [];
-
-      const walkNode = (node: Element) => {
-        const tag = node.tagName?.toLowerCase();
-
-        if (tag === 'table') {
-          const rows: string[][] = [];
-          node.querySelectorAll('tr').forEach(tr => {
-            const cells: string[] = [];
-            tr.querySelectorAll('td,th').forEach(td => cells.push(td.textContent?.trim() || ''));
-            if (cells.length) rows.push(cells);
-          });
-          if (rows.length) result.push(makeItem('', 1, undefined, undefined, undefined, rows));
-          return;
-        }
-
-        if (tag === 'img') {
-          const src = (node as HTMLImageElement).src;
-          const dataSrc = imgMap.get(src) || src;
-          if (dataSrc) {
-            const img = new Image();
-            img.src = dataSrc;
-            result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
-          }
-          return;
-        }
-
-        // headings → level 0
-        if (/^h[1-3]$/.test(tag)) {
-          const text = node.textContent?.trim();
-          if (text) result.push(makeItem(text, 0));
-          return;
-        }
-
-        // paragraphs / list items
-        if (tag === 'p' || tag === 'li') {
-          // check for nested img
-          const imgs = node.querySelectorAll('img');
-          imgs.forEach(img => {
-            const src = img.src;
-            const dataSrc = imgMap.get(src) || src;
-            if (dataSrc) result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
-          });
-          const text = node.textContent?.trim();
-          if (text) {
-            // guess level from indent style or list depth
-            let level = 1;
-            const style = (node as HTMLElement).style?.marginLeft || (node as HTMLElement).getAttribute('data-list-level') || '';
-            const indent = parseInt(style) || 0;
-            if (indent > 60) level = 3;
-            else if (indent > 30) level = 2;
-            result.push(makeItem(text, level));
-          }
-          return;
-        }
-
-        node.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
-      };
-
-      doc.body.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
-      return result;
-    };
-
-    try {
-      if (ext === 'docx') {
-        const arrayBuffer = await file.arrayBuffer();
-        const imgMap = new Map<string, string>();
-        const result = await mammoth.convertToHtml({ arrayBuffer }, {
-          convertImage: mammoth.images.imgElement(async (image) => {
-            const buf = await image.read('base64');
-            const dataUrl = `data:${image.contentType};base64,${buf}`;
-            const src = `img_${imgMap.size}`;
-            imgMap.set(src, dataUrl);
-            return { src };
-          }),
-        });
-        items = parseHtmlToItems(result.value, imgMap);
-
-      } else if (ext === 'hwpx' || ext === 'hwp') {
-        // HWPX is a ZIP — extract section XML
-        const { default: JSZip } = await import('https://cdn.skypack.dev/jszip' as any);
-        const zip = await JSZip.loadAsync(await file.arrayBuffer());
-        const sectionFile = Object.keys(zip.files).find(k => /Section\d+\.xml/i.test(k));
-        if (!sectionFile) throw new Error('섹션 파일을 찾을 수 없습니다. .hwpx 형식인지 확인해주세요.');
-        const xml = await zip.files[sectionFile].async('string');
-        const xmlDoc = new DOMParser().parseFromString(xml, 'text/xml');
-        xmlDoc.querySelectorAll('p').forEach(p => {
-          const text = p.textContent?.trim();
-          if (text) items.push(makeItem(text, 1));
-        });
-
-      } else {
-        alert('지원 형식: .docx, .hwpx (.hwp은 .hwpx로 저장 후 업로드)');
-        return;
-      }
-
-      if (!items.length) { alert('내용을 가져오지 못했습니다.'); return; }
-
-      if (window.confirm(`${items.length}개 항목을 가져옵니다. 현재 내용에 추가할까요?\n(취소: 기존 내용 전부 대체)`)) {
-        setReportData(prev => [...prev, ...items]);
-      } else {
-        setReportData(items);
-      }
-      setNextId(idCounter + 1);
-
-    } catch (e: any) {
-      alert(`파일 불러오기 실패: ${e.message}`);
-    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, id: number) => {
@@ -1876,8 +1721,8 @@ export default function App() {
     setLastSaved(timestamp);
     setStatus(newStatus);
 
-    // 저장/제출 모두 클라우드 업로드
-    if (supabase) {
+    // 클라우드 업로드는 제출 확정(submitted)일 때만
+    if (isSubmit && supabase) {
       try {
         setDriveSaveResult('saving');
         const result = await saveDbData(`${parish}_${church}`, {
@@ -2043,24 +1888,10 @@ export default function App() {
       }
 
       const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
-아래 제공된 데이터의 텍스트(text)와 구조(level)를 함께 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
-
-문서 서식 규칙 (level 값):
-- level 0: 대분류 제목 (예: "전주 결과보고", "금주 계획") — Ⅰ. Ⅱ. 형식
-- level 1: 중분류 항목 (세부 내용의 소제목) — 1. 2. 형식
-- level 2: 세부 내용 (구체적인 실행 내용) — 1) 2) 형식
-- level 3: 부가 설명 — ① ② 형식
-- level 4: 세부 사항 — 가. 나. 형식
-- level 5: 최하위 항목 — a. b. 형식
-
-검토 사항:
-1. 오타 또는 문맥상 어색한 텍스트
-2. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목
-3. level이 내용에 맞지 않는 항목 (잘못된 계층 구조 → 올바른 level로 교정)
-
+아래 제공된 데이터의 텍스트(text)를 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
+1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목을 찾으세요.
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
-수정이 필요한 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
-[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
+[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정 및 양식에 맞춘 텍스트", "reason": "이유" }]`;
 
       let text = "";
 
@@ -2179,9 +2010,9 @@ export default function App() {
     }
   };
 
-  const applyCorrection = async (churchName: string, id: number, correctedText: string, correctedLevel?: number) => {
+  const applyCorrection = async (churchName: string, id: number, correctedText: string) => {
     if (churchName === church) {
-      setReportData(data => data.map(item => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item));
+      updateText(id, correctedText);
     } else {
       const key = `report_${parish}_${churchName}`;
       const saved = localStorage.getItem(key);
@@ -2189,7 +2020,7 @@ export default function App() {
         try {
            const parsed = JSON.parse(saved);
            if (parsed.data) {
-             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item);
+             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText } : item);
              localStorage.setItem(key, JSON.stringify(parsed));
              if (supabase) {
                 await saveDbData(`${parish}_${churchName}`, { id: `${parish}_${churchName}`, ...parsed, updated_at: new Date().toISOString() });
@@ -2203,21 +2034,17 @@ export default function App() {
 
   const applyAllCorrections = async () => {
     if (!aiCorrections) return;
-
-    const byChurch: Record<string, {id: number, text: string, level?: number}[]> = {};
+    
+    const byChurch: Record<string, {id: number, text: string}[]> = {};
     aiCorrections.forEach(c => {
        if (!byChurch[c.church]) byChurch[c.church] = [];
-       byChurch[c.church].push({ id: c.id, text: c.corrected, level: c.level });
+       byChurch[c.church].push({ id: c.id, text: c.corrected });
     });
 
     for (const [cName, updates] of Object.entries(byChurch)) {
-       const updateMap = new Map(updates.map(u => [u.id, u]));
+       const updateMap = new Map(updates.map(u => [u.id, u.text]));
        if (cName === church) {
-          setReportData(data => data.map(item => {
-            const u = updateMap.get(item.id);
-            if (!u) return item;
-            return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
-          }));
+          setReportData(data => data.map(item => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item));
        } else {
           const key = `report_${parish}_${cName}`;
           const saved = localStorage.getItem(key);
@@ -2225,11 +2052,7 @@ export default function App() {
              try {
                 const parsed = JSON.parse(saved);
                 if (parsed.data) {
-                   parsed.data = parsed.data.map((item: any) => {
-                     const u = updateMap.get(item.id);
-                     if (!u) return item;
-                     return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
-                   });
+                   parsed.data = parsed.data.map((item: any) => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item);
                    localStorage.setItem(key, JSON.stringify(parsed));
                    if (supabase) {
                       await saveDbData(`${parish}_${cName}`, { id: `${parish}_${cName}`, ...parsed, updated_at: new Date().toISOString() });
@@ -2520,19 +2343,16 @@ const renderPreviewLines = () => {
       }
 
       let colorClass = "";
-      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-2 text-[1.05rem]";
-      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold";
+      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-3 text-[1.1rem]";
+      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-1";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
       else if (item.level === 4) colorClass = "text-slate-600 ml-14";
       else if (item.level === 5) colorClass = "text-slate-600 ml-16";
 
-      // 텍스트도 이미지도 표도 없는 완전 빈 항목은 미리보기에서 숨김
-      if (!item.text?.trim() && !item.image && (!item.tableData || item.tableData.length === 0)) return null;
-
       return (
-        <div key={item.id} className={`leading-snug mb-0.5 ${colorClass}`}>
-          <div className="whitespace-pre-line">{prefix}{item.text || ''}</div>
+        <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
+          <div className="whitespace-pre-line">{prefix}{item.text || <span className="text-slate-300">(내용 없음)</span>}</div>
           {item.image && (
             <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
@@ -2795,7 +2615,38 @@ const renderPreviewLines = () => {
         </div>
         
         <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
-          <span className="text-blue-600 font-extrabold">☁️ 클라우드</span>
+          <span className={`transition-colors ${isLocalMode ? 'text-slate-400 font-medium' : 'text-blue-600 font-extrabold'}`}>☁️ 클라우드</span>
+          <button 
+            onClick={() => {
+              const nextMode = !isLocalMode;
+              setIsLocalMode(nextMode);
+              localStorage.setItem('IS_LOCAL_MODE', nextMode ? 'true' : 'false');
+            }} 
+            className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer outline-none relative ${isLocalMode ? 'bg-indigo-600' : 'bg-blue-500'}`}
+          >
+            <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow ${isLocalMode ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+          <span className={`transition-colors ${isLocalMode ? 'text-indigo-600 font-extrabold' : 'text-slate-400 font-medium'} flex items-center gap-1`}>
+            🏠 로컬 단독
+            {isLocalMode && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const currentUrl = localStorage.getItem('LOCAL_SERVER_URL') || 'http://localhost:5000';
+                  const nextUrl = prompt('로컬 서버 주소를 입력하세요 (PC 기본값: http://localhost:5000, 모바일/터널: https://자신의터널주소):', currentUrl);
+                  if (nextUrl !== null) {
+                    localStorage.setItem('LOCAL_SERVER_URL', nextUrl.trim() || 'http://localhost:5000');
+                    alert(`로컬 서버 주소가 저장되었습니다: ${nextUrl.trim() || 'http://localhost:5000'}`);
+                    window.location.reload();
+                  }
+                }}
+                className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                title="로컬 서버 주소 설정"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </span>
         </div>
       </div>
 
@@ -3568,22 +3419,12 @@ const renderPreviewLines = () => {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <input ref={docUploadRef} type="file" accept=".docx,.hwp,.hwpx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importDocumentFile(f); e.target.value = ''; }} />
-                <button
-                  onClick={() => docUploadRef.current?.click()}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-blue-50 border border-blue-200"
-                  title="워드(.docx) 또는 한글(.hwpx) 파일을 업로드해 내용을 가져옵니다"
-                >
-                  <Upload className="w-3 h-3" /> 문서 가져오기
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
-                >
-                  <RefreshCw className="w-3 h-3" /> 초기화
-                </button>
-              </div>
+              <button 
+                onClick={handleReset}
+                className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
+              >
+                <RefreshCw className="w-3 h-3" /> 초기화 (새 보고서 시작)
+              </button>
             </div>
             <div className="flex gap-2">
               {activeTab === 'notice_write' ? (
@@ -3639,18 +3480,13 @@ const renderPreviewLines = () => {
 
         {/* Preview Panel */}
         <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
-          <div className="mb-2 flex items-center justify-end">
-            <span className="text-[11px] text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1">
-              <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
-            </span>
-          </div>
-          <div className="mb-1 font-serif">
-            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-3">
+          <div className="mb-8 font-serif">
+            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
                 {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
               </div>
             </div>
-            <div className="text-xl font-black text-blue-700 mb-2 drop-shadow-sm">
+            <div className="text-xl font-black text-blue-700 mb-6 drop-shadow-sm">
               {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
             </div>
           </div>
@@ -4227,13 +4063,12 @@ const renderPreviewLines = () => {
                                   <div className="flex-1">
                                     <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
                                     <span className="text-slate-900 font-medium">{corr.corrected}</span>
-                                    {corr.level !== undefined && <span className="ml-2 text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">L{corr.level}</span>}
                                   </div>
                                 </div>
                                 <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
                                   <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
                                   <button 
-                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected, corr.level)}
+                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected)}
                                     className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
                                   >
                                     이 항목만 적용
