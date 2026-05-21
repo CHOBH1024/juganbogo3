@@ -1699,8 +1699,8 @@ export default function App() {
     setLastSaved(timestamp);
     setStatus(newStatus);
 
-    // 클라우드 업로드는 제출 확정(submitted)일 때만
-    if (isSubmit && supabase) {
+    // 저장/제출 모두 클라우드 업로드
+    if (supabase) {
       try {
         setDriveSaveResult('saving');
         const result = await saveDbData(`${parish}_${church}`, {
@@ -2593,38 +2593,7 @@ const renderPreviewLines = () => {
         </div>
         
         <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
-          <span className={`transition-colors ${isLocalMode ? 'text-slate-400 font-medium' : 'text-blue-600 font-extrabold'}`}>☁️ 클라우드</span>
-          <button 
-            onClick={() => {
-              const nextMode = !isLocalMode;
-              setIsLocalMode(nextMode);
-              localStorage.setItem('IS_LOCAL_MODE', nextMode ? 'true' : 'false');
-            }} 
-            className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer outline-none relative ${isLocalMode ? 'bg-indigo-600' : 'bg-blue-500'}`}
-          >
-            <div className={`w-4 h-4 bg-white rounded-full transition-transform shadow ${isLocalMode ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
-          <span className={`transition-colors ${isLocalMode ? 'text-indigo-600 font-extrabold' : 'text-slate-400 font-medium'} flex items-center gap-1`}>
-            🏠 로컬 단독
-            {isLocalMode && (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const currentUrl = localStorage.getItem('LOCAL_SERVER_URL') || 'http://localhost:5000';
-                  const nextUrl = prompt('로컬 서버 주소를 입력하세요 (PC 기본값: http://localhost:5000, 모바일/터널: https://자신의터널주소):', currentUrl);
-                  if (nextUrl !== null) {
-                    localStorage.setItem('LOCAL_SERVER_URL', nextUrl.trim() || 'http://localhost:5000');
-                    alert(`로컬 서버 주소가 저장되었습니다: ${nextUrl.trim() || 'http://localhost:5000'}`);
-                    window.location.reload();
-                  }
-                }}
-                className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
-                title="로컬 서버 주소 설정"
-              >
-                <Settings className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </span>
+          <span className="text-blue-600 font-extrabold">☁️ 클라우드</span>
         </div>
       </div>
 
