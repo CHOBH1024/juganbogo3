@@ -1343,6 +1343,28 @@ export default function App() {
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, id: number) => {
+    // 이미지 붙여넣기 (클립보드에서 직접 Ctrl+V)
+    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
+    if (imageItem) {
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+            setReportData(data => data.map(item => item.id === id ? {
+              ...item, image: dataUrl, imageWidth: img.naturalWidth, imageHeight: img.naturalHeight
+            } : item));
+          };
+          img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+      }
+      return;
+    }
+
     const htmlInfo = e.clipboardData.getData('text/html');
     if (htmlInfo) {
       const parsed = parseHtmlTable(htmlInfo);
