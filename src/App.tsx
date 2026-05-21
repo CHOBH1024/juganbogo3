@@ -3,7 +3,6 @@ import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Che
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
-import mammoth from 'mammoth';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
@@ -231,7 +230,6 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
-  const docUploadRef = useRef<HTMLInputElement>(null);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
@@ -1183,35 +1181,6 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
 
-  // 전역 붙여넣기: 포커스 없어도 화면 캡처/이미지 Ctrl+V로 새 항목 추가
-  useEffect(() => {
-    const onGlobalPaste = (e: ClipboardEvent) => {
-      const active = document.activeElement;
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return; // 입력란 포커스 중이면 각자 핸들러 처리
-      const imageItem = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
-      if (!imageItem) return;
-      e.preventDefault();
-      const file = imageItem.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          setReportData(prev => {
-            const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
-            setNextId(newId + 1);
-            return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
-          });
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
-    };
-    document.addEventListener('paste', onGlobalPaste);
-    return () => document.removeEventListener('paste', onGlobalPaste);
-  }, []);
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1371,130 +1340,6 @@ export default function App() {
       }
       return item;
     }));
-  };
-
-  const importDocumentFile = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    let items: ReportItem[] = [];
-    let idCounter = Date.now();
-    const nextItemId = () => idCounter++;
-
-    const makeItem = (text: string, level: number, image?: string, imageWidth?: number, imageHeight?: number, tableData?: string[][]): ReportItem => ({
-      id: nextItemId(), text, level,
-      ...(image ? { image, imageWidth, imageHeight } : {}),
-      ...(tableData ? { tableData, tableHighlights: tableData.map(r => r.map(() => false)), chartType: 'none' as const } : {}),
-    });
-
-    const parseHtmlToItems = (html: string, imgMap: Map<string, string>): ReportItem[] => {
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const result: ReportItem[] = [];
-
-      const walkNode = (node: Element) => {
-        const tag = node.tagName?.toLowerCase();
-
-        if (tag === 'table') {
-          const rows: string[][] = [];
-          node.querySelectorAll('tr').forEach(tr => {
-            const cells: string[] = [];
-            tr.querySelectorAll('td,th').forEach(td => cells.push(td.textContent?.trim() || ''));
-            if (cells.length) rows.push(cells);
-          });
-          if (rows.length) result.push(makeItem('', 1, undefined, undefined, undefined, rows));
-          return;
-        }
-
-        if (tag === 'img') {
-          const src = (node as HTMLImageElement).src;
-          const dataSrc = imgMap.get(src) || src;
-          if (dataSrc) {
-            const img = new Image();
-            img.src = dataSrc;
-            result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
-          }
-          return;
-        }
-
-        // headings → level 0
-        if (/^h[1-3]$/.test(tag)) {
-          const text = node.textContent?.trim();
-          if (text) result.push(makeItem(text, 0));
-          return;
-        }
-
-        // paragraphs / list items
-        if (tag === 'p' || tag === 'li') {
-          // check for nested img
-          const imgs = node.querySelectorAll('img');
-          imgs.forEach(img => {
-            const src = img.src;
-            const dataSrc = imgMap.get(src) || src;
-            if (dataSrc) result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
-          });
-          const text = node.textContent?.trim();
-          if (text) {
-            // guess level from indent style or list depth
-            let level = 1;
-            const style = (node as HTMLElement).style?.marginLeft || (node as HTMLElement).getAttribute('data-list-level') || '';
-            const indent = parseInt(style) || 0;
-            if (indent > 60) level = 3;
-            else if (indent > 30) level = 2;
-            result.push(makeItem(text, level));
-          }
-          return;
-        }
-
-        node.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
-      };
-
-      doc.body.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
-      return result;
-    };
-
-    try {
-      if (ext === 'docx') {
-        const arrayBuffer = await file.arrayBuffer();
-        const imgMap = new Map<string, string>();
-        const result = await mammoth.convertToHtml({ arrayBuffer }, {
-          convertImage: mammoth.images.imgElement(async (image) => {
-            const buf = await image.read('base64');
-            const dataUrl = `data:${image.contentType};base64,${buf}`;
-            const src = `img_${imgMap.size}`;
-            imgMap.set(src, dataUrl);
-            return { src };
-          }),
-        });
-        items = parseHtmlToItems(result.value, imgMap);
-
-      } else if (ext === 'hwpx' || ext === 'hwp') {
-        // HWPX is a ZIP — extract section XML
-        const { default: JSZip } = await import('https://cdn.skypack.dev/jszip' as any);
-        const zip = await JSZip.loadAsync(await file.arrayBuffer());
-        const sectionFile = Object.keys(zip.files).find(k => /Section\d+\.xml/i.test(k));
-        if (!sectionFile) throw new Error('섹션 파일을 찾을 수 없습니다. .hwpx 형식인지 확인해주세요.');
-        const xml = await zip.files[sectionFile].async('string');
-        const xmlDoc = new DOMParser().parseFromString(xml, 'text/xml');
-        xmlDoc.querySelectorAll('p').forEach(p => {
-          const text = p.textContent?.trim();
-          if (text) items.push(makeItem(text, 1));
-        });
-
-      } else {
-        alert('지원 형식: .docx, .hwpx (.hwp은 .hwpx로 저장 후 업로드)');
-        return;
-      }
-
-      if (!items.length) { alert('내용을 가져오지 못했습니다.'); return; }
-
-      if (window.confirm(`${items.length}개 항목을 가져옵니다. 현재 내용에 추가할까요?\n(취소: 기존 내용 전부 대체)`)) {
-        setReportData(prev => [...prev, ...items]);
-      } else {
-        setReportData(items);
-      }
-      setNextId(idCounter + 1);
-
-    } catch (e: any) {
-      alert(`파일 불러오기 실패: ${e.message}`);
-    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, id: number) => {
@@ -2520,15 +2365,12 @@ const renderPreviewLines = () => {
       }
 
       let colorClass = "";
-      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-2 text-[1.05rem]";
+      if (item.level === 0) colorClass = "text-blue-700 font-bold underline text-[1.05rem]";
       else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
       else if (item.level === 4) colorClass = "text-slate-600 ml-14";
       else if (item.level === 5) colorClass = "text-slate-600 ml-16";
-
-      // 텍스트도 이미지도 표도 없는 완전 빈 항목은 미리보기에서 숨김
-      if (!item.text?.trim() && !item.image && (!item.tableData || item.tableData.length === 0)) return null;
 
       return (
         <div key={item.id} className={`leading-snug mb-0.5 ${colorClass}`}>
@@ -2916,7 +2758,7 @@ const renderPreviewLines = () => {
 
         <div className="grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0">
           {/* Editor Panel */}
-          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
+          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
           
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
@@ -3519,26 +3361,30 @@ const renderPreviewLines = () => {
             })()})})()}
             
             <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-              <button 
+              <button
                 onClick={() => addNewItem(-1, 1)}
                 className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-500 hover:text-blue-600 p-2.5 rounded-lg text-sm font-medium transition-all"
               >
                 <Plus className="w-4 h-4" /> 세부 항목(L1) 추가
               </button>
-              <button 
+              <button
                 onClick={() => {
                   const newItem = { id: nextId, text: "", level: 0, isFixed: false };
                   const newChild = { id: nextId + 1, text: "", level: 1 };
                   setNextId(prev => prev + 2);
                   setReportData(data => [...data, newItem, newChild]);
-                  setTimeout(() => {
-                    document.getElementById(`input-${newItem.id}`)?.focus();
-                  }, 10);
+                  setTimeout(() => { document.getElementById(`input-${newItem.id}`)?.focus(); }, 10);
                 }}
                 className="flex-1 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 p-2.5 rounded-lg text-sm font-medium transition-colors"
-                title="새로운 카테고리 (Ⅲ, Ⅳ...) 추가"
               >
                 <Plus className="w-4 h-4" /> 대항목(L0) 추가
+              </button>
+              <button
+                onClick={() => docUploadRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                title="워드(.docx) 또는 한글(.hwpx) 파일 내용 가져오기"
+              >
+                <Upload className="w-4 h-4" /> 문서
               </button>
             </div>
           </div>
@@ -3568,22 +3414,12 @@ const renderPreviewLines = () => {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <input ref={docUploadRef} type="file" accept=".docx,.hwp,.hwpx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importDocumentFile(f); e.target.value = ''; }} />
-                <button
-                  onClick={() => docUploadRef.current?.click()}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-blue-50 border border-blue-200"
-                  title="워드(.docx) 또는 한글(.hwpx) 파일을 업로드해 내용을 가져옵니다"
-                >
-                  <Upload className="w-3 h-3" /> 문서 가져오기
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
-                >
-                  <RefreshCw className="w-3 h-3" /> 초기화
-                </button>
-              </div>
+              <button 
+                onClick={handleReset}
+                className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
+              >
+                <RefreshCw className="w-3 h-3" /> 초기화 (새 보고서 시작)
+              </button>
             </div>
             <div className="flex gap-2">
               {activeTab === 'notice_write' ? (
@@ -3638,23 +3474,60 @@ const renderPreviewLines = () => {
         </div>
 
         {/* Preview Panel */}
-        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
+        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
           <div className="mb-2 flex items-center justify-end">
             <span className="text-[11px] text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1">
               <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
             </span>
           </div>
           <div className="mb-1 font-serif">
-            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-3">
+            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-2">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
                 {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
               </div>
             </div>
-            <div className="text-xl font-black text-blue-700 mb-2 drop-shadow-sm">
+            <div className="text-xl font-black text-blue-700 mb-1 drop-shadow-sm">
               {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
             </div>
           </div>
-          <div className="flex-1 font-serif text-slate-900">
+          <div
+            className="flex-1 font-serif text-slate-900"
+            onPaste={e => {
+              const imageItem = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/'));
+              if (imageItem) {
+                e.preventDefault();
+                const file = imageItem.getAsFile();
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => {
+                  const dataUrl = ev.target?.result as string;
+                  const img = new Image();
+                  img.onload = () => {
+                    setReportData(prev => {
+                      const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
+                      setNextId(newId + 1);
+                      return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
+                    });
+                  };
+                  img.src = dataUrl;
+                };
+                reader.readAsDataURL(file);
+                return;
+              }
+              const html = e.clipboardData.getData('text/html');
+              if (html) {
+                const parsed = parseHtmlTable(html);
+                if (parsed?.tableData?.length) {
+                  e.preventDefault();
+                  setReportData(prev => {
+                    const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
+                    setNextId(newId + 1);
+                    return [...prev, { id: newId, text: '', level: 1, tableData: parsed.tableData, tableSpans: parsed.tableSpans, tableHighlights: parsed.tableData.map((r: any[]) => r.map(() => false)), chartType: 'none' as const }];
+                  });
+                }
+              }
+            }}
+          >
             {renderPreviewLines()}
           </div>
         </div>
