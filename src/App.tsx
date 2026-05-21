@@ -1866,10 +1866,24 @@ export default function App() {
       }
 
       const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
-아래 제공된 데이터의 텍스트(text)를 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
-1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목을 찾으세요.
+아래 제공된 데이터의 텍스트(text)와 구조(level)를 함께 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
+
+문서 서식 규칙 (level 값):
+- level 0: 대분류 제목 (예: "전주 결과보고", "금주 계획") — Ⅰ. Ⅱ. 형식
+- level 1: 중분류 항목 (세부 내용의 소제목) — 1. 2. 형식
+- level 2: 세부 내용 (구체적인 실행 내용) — 1) 2) 형식
+- level 3: 부가 설명 — ① ② 형식
+- level 4: 세부 사항 — 가. 나. 형식
+- level 5: 최하위 항목 — a. b. 형식
+
+검토 사항:
+1. 오타 또는 문맥상 어색한 텍스트
+2. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목
+3. level이 내용에 맞지 않는 항목 (잘못된 계층 구조 → 올바른 level로 교정)
+
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
-[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정 및 양식에 맞춘 텍스트", "reason": "이유" }]`;
+수정이 필요한 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
+[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
 
       let text = "";
 
@@ -1988,9 +2002,9 @@ export default function App() {
     }
   };
 
-  const applyCorrection = async (churchName: string, id: number, correctedText: string) => {
+  const applyCorrection = async (churchName: string, id: number, correctedText: string, correctedLevel?: number) => {
     if (churchName === church) {
-      updateText(id, correctedText);
+      setReportData(data => data.map(item => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item));
     } else {
       const key = `report_${parish}_${churchName}`;
       const saved = localStorage.getItem(key);
@@ -1998,7 +2012,7 @@ export default function App() {
         try {
            const parsed = JSON.parse(saved);
            if (parsed.data) {
-             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText } : item);
+             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item);
              localStorage.setItem(key, JSON.stringify(parsed));
              if (supabase) {
                 await saveDbData(`${parish}_${churchName}`, { id: `${parish}_${churchName}`, ...parsed, updated_at: new Date().toISOString() });
@@ -2012,17 +2026,21 @@ export default function App() {
 
   const applyAllCorrections = async () => {
     if (!aiCorrections) return;
-    
-    const byChurch: Record<string, {id: number, text: string}[]> = {};
+
+    const byChurch: Record<string, {id: number, text: string, level?: number}[]> = {};
     aiCorrections.forEach(c => {
        if (!byChurch[c.church]) byChurch[c.church] = [];
-       byChurch[c.church].push({ id: c.id, text: c.corrected });
+       byChurch[c.church].push({ id: c.id, text: c.corrected, level: c.level });
     });
 
     for (const [cName, updates] of Object.entries(byChurch)) {
-       const updateMap = new Map(updates.map(u => [u.id, u.text]));
+       const updateMap = new Map(updates.map(u => [u.id, u]));
        if (cName === church) {
-          setReportData(data => data.map(item => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item));
+          setReportData(data => data.map(item => {
+            const u = updateMap.get(item.id);
+            if (!u) return item;
+            return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
+          }));
        } else {
           const key = `report_${parish}_${cName}`;
           const saved = localStorage.getItem(key);
@@ -2030,7 +2048,11 @@ export default function App() {
              try {
                 const parsed = JSON.parse(saved);
                 if (parsed.data) {
-                   parsed.data = parsed.data.map((item: any) => updateMap.has(item.id) ? { ...item, text: updateMap.get(item.id)! } : item);
+                   parsed.data = parsed.data.map((item: any) => {
+                     const u = updateMap.get(item.id);
+                     if (!u) return item;
+                     return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
+                   });
                    localStorage.setItem(key, JSON.stringify(parsed));
                    if (supabase) {
                       await saveDbData(`${parish}_${cName}`, { id: `${parish}_${cName}`, ...parsed, updated_at: new Date().toISOString() });
@@ -3427,7 +3449,12 @@ const renderPreviewLines = () => {
 
         {/* Preview Panel */}
         <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
-          <div className="mb-8 font-serif">
+          <div className="mb-2 flex items-center justify-end">
+            <span className="text-[11px] text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1">
+              <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
+            </span>
+          </div>
+          <div className="mb-6 font-serif">
             <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
                 {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
@@ -4010,12 +4037,13 @@ const renderPreviewLines = () => {
                                   <div className="flex-1">
                                     <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
                                     <span className="text-slate-900 font-medium">{corr.corrected}</span>
+                                    {corr.level !== undefined && <span className="ml-2 text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">L{corr.level}</span>}
                                   </div>
                                 </div>
                                 <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
                                   <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
                                   <button 
-                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected)}
+                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected, corr.level)}
                                     className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
                                   >
                                     이 항목만 적용
