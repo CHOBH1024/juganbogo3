@@ -229,6 +229,7 @@ export default function App() {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
+  const isLoadingDataRef = useRef(false);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
@@ -1082,6 +1083,7 @@ export default function App() {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
 
     const loadData = async () => {
+      isLoadingDataRef.current = true;
       const key = `report_${parish}_${church}`;
       const savedLocal = localStorage.getItem(key);
       let localParsed: any = null;
@@ -1143,6 +1145,7 @@ export default function App() {
 
       setAiCorrections(null);
 
+      isLoadingDataRef.current = false;
       // 백그라운드 프리로드: 같은 교구 내 다른 교회를 미리 Drive에서 캐시
       const churches = PARISH_CHURCH_MAP[parish] || [];
       churches.forEach((c: string) => {
@@ -1168,29 +1171,14 @@ export default function App() {
   // Silent auto-save on data change
   useEffect(() => {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
-    if (reportData === DEFAULT_REPORT && !lastSaved) return; 
+    if (reportData === DEFAULT_REPORT && !lastSaved) return;
+    if (isLoadingDataRef.current) return;
     const key = `report_${parish}_${church}`;
     const timestamp = lastSaved || new Date().toLocaleString('ko-KR');
     
-    // Save locally first for fast recovery
+    // 자동저장은 로컬만 (클라우드는 제출 확정 시에만)
     const saveData = { data: reportData, lastSaved: timestamp, status };
     localStorage.setItem(key, JSON.stringify(saveData));
-
-    // Supabase save with debounce (Storage DB)
-    const timeoutId = setTimeout(async () => {
-      if (!supabase) return;
-      try {
-        await saveDbData(`${parish}_${church}`, {
-          id: `${parish}_${church}`,
-          ...saveData,
-          updated_at: new Date().toISOString()
-        });
-      } catch (e) {
-        console.error("Supabase save failed:", e);
-      }
-    }, 2000); // 2 seconds debounce
-
-    return () => clearTimeout(timeoutId);
   }, [reportData, parish, church, status, lastSaved, activeTab]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
@@ -1705,12 +1693,14 @@ export default function App() {
     const timestamp = new Date().toLocaleString('ko-KR');
     const newStatus = isSubmit ? 'submitted' : 'draft';
     const saveData = { data: reportData, lastSaved: timestamp, status: newStatus };
-    
+
+    // 항상 로컬 저장
     localStorage.setItem(key, JSON.stringify(saveData));
     setLastSaved(timestamp);
     setStatus(newStatus);
-    
-    if (supabase) {
+
+    // 클라우드 업로드는 제출 확정(submitted)일 때만
+    if (isSubmit && supabase) {
       try {
         setDriveSaveResult('saving');
         const result = await saveDbData(`${parish}_${church}`, {
@@ -2331,8 +2321,8 @@ const renderPreviewLines = () => {
       }
 
       let colorClass = "";
-      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-6 text-[1.1rem]";
-      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-2";
+      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-3 text-[1.1rem]";
+      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-1";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
       else if (item.level === 4) colorClass = "text-slate-600 ml-14";
@@ -3982,6 +3972,17 @@ const renderPreviewLines = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Loading Overlay */}
+      {isSaving && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4">
+            <RefreshCw className="w-10 h-10 text-blue-500 animate-spin" />
+            <p className="text-slate-800 font-bold text-lg">저장 중...</p>
+            <p className="text-slate-400 text-sm">잠시만 기다려 주세요</p>
           </div>
         </div>
       )}
