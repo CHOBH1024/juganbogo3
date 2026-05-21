@@ -3445,7 +3445,7 @@ const renderPreviewLines = () => {
                       onClick={() => { setStatus('draft'); handleSave(false); }}
                       className="flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300"
                     >
-                      <X className="w-4 h-4" /> 제출 취소
+                      <Save className="w-4 h-4" /> 저장
                     </button>
                   )}
                 </>
