@@ -2365,16 +2365,16 @@ const renderPreviewLines = () => {
       }
 
       let colorClass = "";
-      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-3 text-[1.1rem]";
-      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-1";
+      if (item.level === 0) colorClass = "text-blue-700 font-bold underline text-[1.05rem]";
+      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
       else if (item.level === 4) colorClass = "text-slate-600 ml-14";
       else if (item.level === 5) colorClass = "text-slate-600 ml-16";
 
       return (
-        <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
-          <div className="whitespace-pre-line">{prefix}{item.text || <span className="text-slate-300">(내용 없음)</span>}</div>
+        <div key={item.id} className={`leading-snug mb-0.5 ${colorClass}`}>
+          <div className="whitespace-pre-line">{prefix}{item.text || ''}</div>
           {item.image && (
             <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
@@ -2758,7 +2758,7 @@ const renderPreviewLines = () => {
 
         <div className="grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0">
           {/* Editor Panel */}
-          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
+          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
           
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
@@ -3361,26 +3361,30 @@ const renderPreviewLines = () => {
             })()})})()}
             
             <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-              <button 
+              <button
                 onClick={() => addNewItem(-1, 1)}
                 className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-500 hover:text-blue-600 p-2.5 rounded-lg text-sm font-medium transition-all"
               >
                 <Plus className="w-4 h-4" /> 세부 항목(L1) 추가
               </button>
-              <button 
+              <button
                 onClick={() => {
                   const newItem = { id: nextId, text: "", level: 0, isFixed: false };
                   const newChild = { id: nextId + 1, text: "", level: 1 };
                   setNextId(prev => prev + 2);
                   setReportData(data => [...data, newItem, newChild]);
-                  setTimeout(() => {
-                    document.getElementById(`input-${newItem.id}`)?.focus();
-                  }, 10);
+                  setTimeout(() => { document.getElementById(`input-${newItem.id}`)?.focus(); }, 10);
                 }}
                 className="flex-1 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 p-2.5 rounded-lg text-sm font-medium transition-colors"
-                title="새로운 카테고리 (Ⅲ, Ⅳ...) 추가"
               >
                 <Plus className="w-4 h-4" /> 대항목(L0) 추가
+              </button>
+              <button
+                onClick={() => docUploadRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                title="워드(.docx) 또는 한글(.hwpx) 파일 내용 가져오기"
+              >
+                <Upload className="w-4 h-4" /> 문서
               </button>
             </div>
           </div>
@@ -3470,23 +3474,60 @@ const renderPreviewLines = () => {
         </div>
 
         {/* Preview Panel */}
-        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-[12rem])] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
+        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
           <div className="mb-2 flex items-center justify-end">
             <span className="text-[11px] text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1">
               <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
             </span>
           </div>
-          <div className="mb-6 font-serif">
-            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
+          <div className="mb-1 font-serif">
+            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-2">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
                 {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
               </div>
             </div>
-            <div className="text-xl font-black text-blue-700 mb-6 drop-shadow-sm">
+            <div className="text-xl font-black text-blue-700 mb-1 drop-shadow-sm">
               {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
             </div>
           </div>
-          <div className="flex-1 font-serif text-slate-900">
+          <div
+            className="flex-1 font-serif text-slate-900"
+            onPaste={e => {
+              const imageItem = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/'));
+              if (imageItem) {
+                e.preventDefault();
+                const file = imageItem.getAsFile();
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => {
+                  const dataUrl = ev.target?.result as string;
+                  const img = new Image();
+                  img.onload = () => {
+                    setReportData(prev => {
+                      const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
+                      setNextId(newId + 1);
+                      return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
+                    });
+                  };
+                  img.src = dataUrl;
+                };
+                reader.readAsDataURL(file);
+                return;
+              }
+              const html = e.clipboardData.getData('text/html');
+              if (html) {
+                const parsed = parseHtmlTable(html);
+                if (parsed?.tableData?.length) {
+                  e.preventDefault();
+                  setReportData(prev => {
+                    const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
+                    setNextId(newId + 1);
+                    return [...prev, { id: newId, text: '', level: 1, tableData: parsed.tableData, tableSpans: parsed.tableSpans, tableHighlights: parsed.tableData.map((r: any[]) => r.map(() => false)), chartType: 'none' as const }];
+                  });
+                }
+              }
+            }}
+          >
             {renderPreviewLines()}
           </div>
         </div>
