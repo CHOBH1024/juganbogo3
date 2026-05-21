@@ -3,6 +3,7 @@ import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Che
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
+import mammoth from 'mammoth';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
@@ -230,6 +231,7 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
+  const docUploadRef = useRef<HTMLInputElement>(null);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
@@ -1181,6 +1183,35 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
 
+  // 전역 붙여넣기: 포커스 없어도 화면 캡처/이미지 Ctrl+V로 새 항목 추가
+  useEffect(() => {
+    const onGlobalPaste = (e: ClipboardEvent) => {
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return; // 입력란 포커스 중이면 각자 핸들러 처리
+      const imageItem = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+      if (!imageItem) return;
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          setReportData(prev => {
+            const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
+            setNextId(newId + 1);
+            return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
+          });
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    };
+    document.addEventListener('paste', onGlobalPaste);
+    return () => document.removeEventListener('paste', onGlobalPaste);
+  }, []);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1340,6 +1371,130 @@ export default function App() {
       }
       return item;
     }));
+  };
+
+  const importDocumentFile = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    let items: ReportItem[] = [];
+    let idCounter = Date.now();
+    const nextItemId = () => idCounter++;
+
+    const makeItem = (text: string, level: number, image?: string, imageWidth?: number, imageHeight?: number, tableData?: string[][]): ReportItem => ({
+      id: nextItemId(), text, level,
+      ...(image ? { image, imageWidth, imageHeight } : {}),
+      ...(tableData ? { tableData, tableHighlights: tableData.map(r => r.map(() => false)), chartType: 'none' as const } : {}),
+    });
+
+    const parseHtmlToItems = (html: string, imgMap: Map<string, string>): ReportItem[] => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const result: ReportItem[] = [];
+
+      const walkNode = (node: Element) => {
+        const tag = node.tagName?.toLowerCase();
+
+        if (tag === 'table') {
+          const rows: string[][] = [];
+          node.querySelectorAll('tr').forEach(tr => {
+            const cells: string[] = [];
+            tr.querySelectorAll('td,th').forEach(td => cells.push(td.textContent?.trim() || ''));
+            if (cells.length) rows.push(cells);
+          });
+          if (rows.length) result.push(makeItem('', 1, undefined, undefined, undefined, rows));
+          return;
+        }
+
+        if (tag === 'img') {
+          const src = (node as HTMLImageElement).src;
+          const dataSrc = imgMap.get(src) || src;
+          if (dataSrc) {
+            const img = new Image();
+            img.src = dataSrc;
+            result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
+          }
+          return;
+        }
+
+        // headings → level 0
+        if (/^h[1-3]$/.test(tag)) {
+          const text = node.textContent?.trim();
+          if (text) result.push(makeItem(text, 0));
+          return;
+        }
+
+        // paragraphs / list items
+        if (tag === 'p' || tag === 'li') {
+          // check for nested img
+          const imgs = node.querySelectorAll('img');
+          imgs.forEach(img => {
+            const src = img.src;
+            const dataSrc = imgMap.get(src) || src;
+            if (dataSrc) result.push(makeItem('', 1, dataSrc, img.naturalWidth || 400, img.naturalHeight || 300));
+          });
+          const text = node.textContent?.trim();
+          if (text) {
+            // guess level from indent style or list depth
+            let level = 1;
+            const style = (node as HTMLElement).style?.marginLeft || (node as HTMLElement).getAttribute('data-list-level') || '';
+            const indent = parseInt(style) || 0;
+            if (indent > 60) level = 3;
+            else if (indent > 30) level = 2;
+            result.push(makeItem(text, level));
+          }
+          return;
+        }
+
+        node.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
+      };
+
+      doc.body.childNodes.forEach(child => { if (child.nodeType === 1) walkNode(child as Element); });
+      return result;
+    };
+
+    try {
+      if (ext === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const imgMap = new Map<string, string>();
+        const result = await mammoth.convertToHtml({ arrayBuffer }, {
+          convertImage: mammoth.images.imgElement(async (image) => {
+            const buf = await image.read('base64');
+            const dataUrl = `data:${image.contentType};base64,${buf}`;
+            const src = `img_${imgMap.size}`;
+            imgMap.set(src, dataUrl);
+            return { src };
+          }),
+        });
+        items = parseHtmlToItems(result.value, imgMap);
+
+      } else if (ext === 'hwpx' || ext === 'hwp') {
+        // HWPX is a ZIP — extract section XML
+        const { default: JSZip } = await import('https://cdn.skypack.dev/jszip' as any);
+        const zip = await JSZip.loadAsync(await file.arrayBuffer());
+        const sectionFile = Object.keys(zip.files).find(k => /Section\d+\.xml/i.test(k));
+        if (!sectionFile) throw new Error('섹션 파일을 찾을 수 없습니다. .hwpx 형식인지 확인해주세요.');
+        const xml = await zip.files[sectionFile].async('string');
+        const xmlDoc = new DOMParser().parseFromString(xml, 'text/xml');
+        xmlDoc.querySelectorAll('p').forEach(p => {
+          const text = p.textContent?.trim();
+          if (text) items.push(makeItem(text, 1));
+        });
+
+      } else {
+        alert('지원 형식: .docx, .hwpx (.hwp은 .hwpx로 저장 후 업로드)');
+        return;
+      }
+
+      if (!items.length) { alert('내용을 가져오지 못했습니다.'); return; }
+
+      if (window.confirm(`${items.length}개 항목을 가져옵니다. 현재 내용에 추가할까요?\n(취소: 기존 내용 전부 대체)`)) {
+        setReportData(prev => [...prev, ...items]);
+      } else {
+        setReportData(items);
+      }
+      setNextId(idCounter + 1);
+
+    } catch (e: any) {
+      alert(`파일 불러오기 실패: ${e.message}`);
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, id: number) => {
@@ -2365,16 +2520,19 @@ const renderPreviewLines = () => {
       }
 
       let colorClass = "";
-      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-3 text-[1.1rem]";
-      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold mt-1";
+      if (item.level === 0) colorClass = "text-blue-700 font-bold underline mt-2 text-[1.05rem]";
+      else if (item.level === 1) colorClass = "text-blue-700 ml-2 font-bold";
       else if (item.level === 2) colorClass = "text-slate-800 ml-6";
       else if (item.level === 3) colorClass = "text-slate-700 ml-10";
       else if (item.level === 4) colorClass = "text-slate-600 ml-14";
       else if (item.level === 5) colorClass = "text-slate-600 ml-16";
 
+      // 텍스트도 이미지도 표도 없는 완전 빈 항목은 미리보기에서 숨김
+      if (!item.text?.trim() && !item.image && (!item.tableData || item.tableData.length === 0)) return null;
+
       return (
-        <div key={item.id} className={`leading-relaxed mb-1 ${colorClass}`}>
-          <div className="whitespace-pre-line">{prefix}{item.text || <span className="text-slate-300">(내용 없음)</span>}</div>
+        <div key={item.id} className={`leading-snug mb-0.5 ${colorClass}`}>
+          <div className="whitespace-pre-line">{prefix}{item.text || ''}</div>
           {item.image && (
             <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
@@ -3410,12 +3568,22 @@ const renderPreviewLines = () => {
                   </span>
                 )}
               </div>
-              <button 
-                onClick={handleReset}
-                className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
-              >
-                <RefreshCw className="w-3 h-3" /> 초기화 (새 보고서 시작)
-              </button>
+              <div className="flex items-center gap-2">
+                <input ref={docUploadRef} type="file" accept=".docx,.hwp,.hwpx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importDocumentFile(f); e.target.value = ''; }} />
+                <button
+                  onClick={() => docUploadRef.current?.click()}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-blue-50 border border-blue-200"
+                  title="워드(.docx) 또는 한글(.hwpx) 파일을 업로드해 내용을 가져옵니다"
+                >
+                  <Upload className="w-3 h-3" /> 문서 가져오기
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-red-50"
+                >
+                  <RefreshCw className="w-3 h-3" /> 초기화
+                </button>
+              </div>
             </div>
             <div className="flex gap-2">
               {activeTab === 'notice_write' ? (
@@ -3476,13 +3644,13 @@ const renderPreviewLines = () => {
               <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
             </span>
           </div>
-          <div className="mb-6 font-serif">
-            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-5 mb-8">
+          <div className="mb-1 font-serif">
+            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-3">
               <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
                 {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
               </div>
             </div>
-            <div className="text-xl font-black text-blue-700 mb-6 drop-shadow-sm">
+            <div className="text-xl font-black text-blue-700 mb-2 drop-shadow-sm">
               {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
             </div>
           </div>
