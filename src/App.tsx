@@ -3321,7 +3321,11 @@ const renderPreviewLines = () => {
                   <div
                     key={notice.id}
                     onClick={() => { setActiveNotice(notice); markNoticeRead(notice.id); }}
-                    className={`bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer group transition-all duration-200 hover:shadow-lg ${isUnread ? 'border-2 border-blue-400 ring-1 ring-blue-200' : 'border border-slate-200 hover:border-blue-200'}`}
+                    className={`bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer group transition-all duration-200 hover:shadow-lg ${
+                      cat === '긴급' ? 'border-2 border-red-400 ring-1 ring-red-200 shadow-red-100' :
+                      isUnread ? 'border-2 border-blue-400 ring-1 ring-blue-200' :
+                      'border border-slate-200 hover:border-blue-200'
+                    }`}
                   >
                     {/* Thumbnail */}
                     <div className="h-44 overflow-hidden relative">
@@ -3330,6 +3334,11 @@ const renderPreviewLines = () => {
                       ) : notice.pdfUrl ? (
                         <div className="w-full h-full bg-gradient-to-br from-red-400 to-rose-600 flex items-center justify-center">
                           <FileText className="w-12 h-12 text-white/80" />
+                        </div>
+                      ) : cat === '긴급' ? (
+                        <div className="w-full h-full bg-gradient-to-br from-red-500 via-red-600 to-rose-700 flex flex-col items-center justify-center gap-2">
+                          <AlertTriangle className="w-10 h-10 text-white/90 animate-pulse" />
+                          <span className="text-white/80 text-xs font-black tracking-widest">긴급 공지</span>
                         </div>
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 flex items-center justify-center">
@@ -3371,10 +3380,17 @@ const renderPreviewLines = () => {
                 {/* Category + Date */}
                 <div className="flex items-center gap-3 mb-4">
                   {activeNotice.category && (
-                    <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">{activeNotice.category}</span>
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${activeNotice.category === '긴급' ? 'bg-red-100 text-red-700' : activeNotice.category === '행사' ? 'bg-emerald-100 text-emerald-700' : activeNotice.category === '안내' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{activeNotice.category}</span>
                   )}
                   <span className="text-sm text-slate-400">{new Date(activeNotice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</span>
                 </div>
+                {/* 긴급 배너 */}
+                {activeNotice.category === '긴급' && (
+                  <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-5">
+                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 animate-pulse" />
+                    <p className="text-sm text-red-700 font-bold">긴급 공지입니다. 즉시 확인하고 조치해 주세요.</p>
+                  </div>
+                )}
                 {/* Title */}
                 <h1 className="text-3xl sm:text-4xl font-black text-slate-900 leading-tight mb-8 pb-6 border-b border-slate-200">{activeNotice.title}</h1>
                 {/* PDF */}
@@ -4181,6 +4197,7 @@ const renderPreviewLines = () => {
               const totalItems = cleanItems.length;
               const l0Count = cleanItems.filter(i => i.level === 1).length; // 대항목 수
               const filledItems = cleanItems.filter(i => i.text && i.text.trim().length > 2).length;
+              const totalChars = cleanItems.reduce((acc, i) => acc + (i.text?.length || 0), 0);
               if (totalItems === 0) return null;
               const pct = Math.round((filledItems / totalItems) * 100);
               return (
@@ -4194,6 +4211,10 @@ const renderPreviewLines = () => {
                       className={`h-full rounded-full transition-all duration-500 ${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'}`}
                       style={{ width: `${pct}%` }}
                     />
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                    <span>항목 {filledItems}/{totalItems} 작성</span>
+                    <span>{totalChars.toLocaleString()}자</span>
                   </div>
                 </div>
               );
@@ -4242,13 +4263,17 @@ const renderPreviewLines = () => {
                 </button>
               ) : (
                 <>
-                  <button 
+                  <button
                     onClick={() => handleSave(true)}
                     disabled={isSaving || status === 'submitted'}
-                    className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-colors disabled:opacity-70 ${status === 'submitted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                    className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-bold transition-all disabled:opacity-70 ${
+                      status === 'submitted'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-md hover:shadow-lg active:scale-[0.98]'
+                    }`}
                   >
                     <Check className="w-4 h-4" />
-                    {status === 'submitted' ? '제출 완료' : '제출 확정'}
+                    {status === 'submitted' ? '✅ 제출 완료' : '제출 확정'}
                   </button>
                   {status === 'submitted' && (
                     <button 
