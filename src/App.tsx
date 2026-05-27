@@ -1238,11 +1238,12 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
     if (reportData === DEFAULT_REPORT && !lastSaved) return;
+    // 교구/교회 전환 중(isLoadingDataRef=true)에는 저장 금지
+    // — 이전 교회 reportData가 새 교회 키에 덮어쓰이는 것 방지
     if (isLoadingDataRef.current) return;
     const key = `report_${parish}_${church}`;
     const timestamp = lastSaved || new Date().toLocaleString('ko-KR');
-    
-    // 자동저장은 로컬만 (클라우드는 제출 확정 시에만)
+    // 자동저장은 로컬만 (클라우드는 저장 버튼 또는 제출 확정 시에만)
     const saveData = { data: reportData, lastSaved: timestamp, status };
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
@@ -1742,13 +1743,19 @@ export default function App() {
   };
 
   const handleParishChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    // 자동저장 useEffect가 새 교구 키로 이전 데이터를 덮어쓰지 않도록
+    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+    isLoadingDataRef.current = true;
     handleSave(false);
     const newParish = e.target.value;
     setParish(newParish);
     setChurch(PARISH_CHURCH_MAP[newParish][0]);
   };
-  
+
   const handleChurchChange = (newChurch: string) => {
+    // 자동저장 useEffect가 새 교회 키로 이전 데이터를 덮어쓰지 않도록
+    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+    isLoadingDataRef.current = true;
     handleSave(false);
     setChurch(newChurch);
   };
