@@ -358,6 +358,14 @@ export default function App() {
   const [churchChangeParish, setChurchChangeParish] = useState(parish);
   const [churchChangeChurch, setChurchChangeChurch] = useState(church);
 
+  // 새 주간보고 시작 모달 (admin 전용)
+  const [showNewWeekModal, setShowNewWeekModal] = useState(false);
+  const [newWeekPassword, setNewWeekPassword] = useState('');
+  const [newWeekSolarDate, setNewWeekSolarDate] = useState('');
+  const [newWeekHeavenlyDate, setNewWeekHeavenlyDate] = useState('');
+  const [newWeekPasswordError, setNewWeekPasswordError] = useState('');
+  const [newWeekIsResetting, setNewWeekIsResetting] = useState(false);
+
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedField(field);
@@ -2917,44 +2925,57 @@ const renderPreviewLines = () => {
   };
 
   const resetAllData = async () => {
-    const password = prompt("전체 초기화 비밀번호를 입력하세요:");
-    if (password !== "skmt0909!") {
-      if (password !== null) alert("비밀번호가 일치하지 않습니다.");
+    // 모달을 열어 사용자가 입력하도록 유도 (prompt/confirm 대신)
+    setNewWeekPassword('');
+    setNewWeekSolarDate(appConfig?.solarDate || '');
+    setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
+    setNewWeekPasswordError('');
+    setShowNewWeekModal(true);
+  };
+
+  const executeNewWeekReset = async () => {
+    if (newWeekPassword !== 'skmt0909!') {
+      setNewWeekPasswordError('비밀번호가 일치하지 않습니다.');
       return;
     }
+    if (!newWeekSolarDate.trim()) {
+      setNewWeekPasswordError('양력 날짜를 입력해 주세요.');
+      return;
+    }
+    if (!newWeekHeavenlyDate.trim()) {
+      setNewWeekPasswordError('천력 날짜를 입력해 주세요.');
+      return;
+    }
+    setNewWeekIsResetting(true);
+    setNewWeekPasswordError('');
 
-    const sDate = prompt("이번 주간보고 양력 날짜를 입력하세요 (예: 5월 4주차 또는 5월 27일):", appConfig?.solarDate || "");
-    if (!sDate) return;
-    const hDate = prompt("이번 주간보고 천일국 천력 날짜를 입력하세요 (예: 4월 11일):", appConfig?.heavenlyDate || "");
-    if (!hDate) return;
-
-    if (window.confirm(`[${sDate}] (천력 ${hDate}) 주간 취합 모드로 변경하며, 모든 교구/교회의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
-      const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
-
-      for (const p of Object.keys(PARISH_CHURCH_MAP)) {
-        for (const c of PARISH_CHURCH_MAP[p]) {
-          const key = `report_${p}_${c}`;
-          localStorage.setItem(key, JSON.stringify(defaultData));
-          try {
-            await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
-          } catch (e) {
-            console.error(e);
-          }
+    const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+    for (const p of Object.keys(PARISH_CHURCH_MAP)) {
+      for (const c of PARISH_CHURCH_MAP[p]) {
+        const key = `report_${p}_${c}`;
+        localStorage.setItem(key, JSON.stringify(defaultData));
+        try {
+          await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+        } catch (e) {
+          console.error(e);
         }
       }
-
-      const newConfig = { solarDate: sDate, heavenlyDate: hDate };
-      try {
-        await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
-        setAppConfig(newConfig);
-      } catch(e) {}
-
-      setReportData(DEFAULT_REPORT);
-      setLastSaved(null);
-      setStatus('draft');
-      updateParishStats();
-      toast.success("전 교구 데이터가 성공적으로 초기화되었습니다.");
     }
+
+    const newConfig = { solarDate: newWeekSolarDate.trim(), heavenlyDate: newWeekHeavenlyDate.trim() };
+    try {
+      await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
+      setAppConfig(newConfig);
+    } catch(e) {}
+
+    setReportData(DEFAULT_REPORT);
+    setLastSaved(null);
+    setStatus('draft');
+    updateParishStats();
+    loadAllReportsStatus();
+    setNewWeekIsResetting(false);
+    setShowNewWeekModal(false);
+    toast.success(`✅ [${newWeekSolarDate.trim()}] 주간보고가 새로 시작되었습니다.`);
   };
 
   if (!role) {
@@ -4016,42 +4037,17 @@ const renderPreviewLines = () => {
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">전국 교구와 협회 부서의 작성 현황을 확인하고 제어합니다.</p>
                 </div>
-                <button 
-                  onClick={async () => {
-                    const pwd = prompt("전체 교구의 데이터를 초기화하려면 비밀번호를 입력해 주세요:");
-                    if (pwd === "skmt0909!") {
-                      const sDate = prompt("이번 주간보고 양력 날짜를 입력하세요 (예: 5월 4주차 또는 5월 27일):", appConfig?.solarDate || "");
-                      if (!sDate) return;
-                      const hDate = prompt("이번 주간보고 천일국 천력 날짜를 입력하세요 (예: 4월 11일):", appConfig?.heavenlyDate || "");
-                      if (!hDate) return;
-
-                      if (window.confirm(`[${sDate}] (천력 ${hDate}) 주간 취합 모드로 변경하며, 모든 교구와 협회의 주간보고 데이터를 초기화하시겠습니까? (이 작업은 되돌릴 수 없습니다)`)) {
-                        const defaultData = { data: DEFAULT_REPORT, status: 'draft', lastSaved: null };
-                        for (const p of Object.keys(PARISH_CHURCH_MAP)) {
-                          for (const c of PARISH_CHURCH_MAP[p]) {
-                            const key = `report_${p}_${c}`;
-                            localStorage.setItem(key, JSON.stringify(defaultData));
-                            try {
-                              await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
-                            } catch(e){}
-                          }
-                        }
-                        const newConfig = { solarDate: sDate, heavenlyDate: hDate };
-                        try {
-                          await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
-                          setAppConfig(newConfig);
-                        } catch(e) {}
-
-                        loadAllReportsStatus();
-                        toast.success("전 교구 및 협회 데이터가 전체 초기화되었습니다.");
-                      }
-                    } else if (pwd !== null) {
-                      alert("비밀번호가 일치하지 않습니다.");
-                    }
+                <button
+                  onClick={() => {
+                    setNewWeekPassword('');
+                    setNewWeekSolarDate(appConfig?.solarDate || '');
+                    setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
+                    setNewWeekPasswordError('');
+                    setShowNewWeekModal(true);
                   }}
-                  className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg text-xs font-bold transition-colors"
+                  className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
                 >
-                  전체 데이터 초기화
+                  <RefreshCw className="w-3.5 h-3.5" /> 새 주간보고 시작
                 </button>
               </div>
 
@@ -5185,6 +5181,100 @@ const renderPreviewLines = () => {
 
     </div>
     </div>
+
+    {/* 새 주간보고 시작 모달 */}
+    {showNewWeekModal && (
+      <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4" onClick={() => !newWeekIsResetting && setShowNewWeekModal(false)}>
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-gradient-to-br from-red-600 to-red-700 p-5 text-white">
+            <div className="flex items-center gap-3">
+              <div className="bg-white/20 p-2.5 rounded-xl">
+                <RefreshCw className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black">새 주간보고 시작</h2>
+                <p className="text-red-100 text-xs mt-0.5">모든 교구/교회 데이터가 초기화됩니다</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800 leading-relaxed">이 작업을 실행하면 <strong>전 교구·전 교회의 주간보고 데이터</strong>가 모두 초기화되며 복구할 수 없습니다.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">관리자 비밀번호 <span className="text-red-500">*</span></label>
+              <input
+                type="password"
+                placeholder="비밀번호 입력"
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 outline-none transition-all ${newWeekPasswordError && newWeekPassword !== 'skmt0909!' ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-red-200 focus:border-red-400'}`}
+                value={newWeekPassword}
+                onChange={e => { setNewWeekPassword(e.target.value); setNewWeekPasswordError(''); }}
+                autoFocus
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">양력 날짜 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="예: 5월 4주차"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
+                  value={newWeekSolarDate}
+                  onChange={e => { setNewWeekSolarDate(e.target.value); setNewWeekPasswordError(''); }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">천력 날짜 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="예: 4월 11일"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
+                  value={newWeekHeavenlyDate}
+                  onChange={e => { setNewWeekHeavenlyDate(e.target.value); setNewWeekPasswordError(''); }}
+                />
+              </div>
+            </div>
+
+            {newWeekPasswordError && (
+              <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />{newWeekPasswordError}
+              </p>
+            )}
+
+            {newWeekSolarDate && newWeekHeavenlyDate && newWeekPassword === 'skmt0909!' && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 leading-relaxed">
+                <span className="font-bold text-slate-800">[{newWeekSolarDate.trim()}]</span> (천력 {newWeekHeavenlyDate.trim()}) 주간보고를 새로 시작합니다.<br/>
+                전체 교구 및 협회의 보고서가 초기화됩니다.
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowNewWeekModal(false)}
+                disabled={newWeekIsResetting}
+                className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={executeNewWeekReset}
+                disabled={newWeekIsResetting || !newWeekSolarDate.trim() || !newWeekHeavenlyDate.trim()}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white rounded-xl text-sm font-black transition-colors flex items-center justify-center gap-2"
+              >
+                {newWeekIsResetting ? (
+                  <><RefreshCw className="w-4 h-4 animate-spin" /> 초기화 중...</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4" /> 새 주간보고 시작</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* 토스트 알림 컨테이너 */}
     <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none md:bottom-6">
