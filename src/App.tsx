@@ -325,6 +325,8 @@ export default function App() {
   const [isAdminCheckingAI, setIsAdminCheckingAI] = useState(false);
   const [adminAiCorrections, setAdminAiCorrections] = useState<any[] | null>(null);
   const [adminReportStatusMap, setAdminReportStatusMap] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
+  const [adminReportTimestampMap, setAdminReportTimestampMap] = useState<Record<string, string | null>>({});
+  const [adminExpandedParish, setAdminExpandedParish] = useState<string | null>(null);
   const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
   const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
@@ -662,10 +664,11 @@ export default function App() {
 
   const loadAllReportsStatus = async () => {
     const stats: Record<string, 'empty' | 'draft' | 'submitted'> = {};
+    const timestamps: Record<string, string | null> = {};
     for (const p of Object.keys(PARISH_CHURCH_MAP)) {
       for (const c of PARISH_CHURCH_MAP[p]) {
         const key = `${p}_${c}`;
-        
+
         // 1. 현재 로드된 교회 체크
         if (p === parish && c === church) {
           if (status === 'submitted') {
@@ -673,6 +676,7 @@ export default function App() {
           } else {
             stats[key] = getCleanData(reportData).length > 0 ? 'draft' : 'empty';
           }
+          timestamps[key] = lastSaved;
           continue;
         }
 
@@ -687,15 +691,19 @@ export default function App() {
               const d = parsed.data || [];
               stats[key] = getCleanData(d).length > 0 ? 'draft' : 'empty';
             }
+            timestamps[key] = parsed.lastSaved || null;
           } catch(e) {
             stats[key] = 'empty';
+            timestamps[key] = null;
           }
         } else {
           stats[key] = 'empty';
+          timestamps[key] = null;
         }
       }
     }
     setAdminReportStatusMap(stats);
+    setAdminReportTimestampMap(timestamps);
   };
 
   useEffect(() => {
@@ -4084,53 +4092,102 @@ const renderPreviewLines = () => {
                 </button>
               </div>
 
-              {/* Parish Dashboard (Progress Bars) */}
-              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+              {/* 전국 종합 현황 요약 */}
+              {(() => {
+                const allChurches = Object.entries(PARISH_CHURCH_MAP)
+                  .filter(([p]) => p !== '협회')
+                  .flatMap(([p, cs]) => cs.slice(1).map(c => `${p}_${c}`));
+                const totalSubmitted = allChurches.filter(k => adminReportStatusMap[k] === 'submitted').length;
+                const totalDraft = allChurches.filter(k => adminReportStatusMap[k] === 'draft').length;
+                const totalEmpty = allChurches.length - totalSubmitted - totalDraft;
+                const pct = allChurches.length > 0 ? Math.round((totalSubmitted / allChurches.length) * 100) : 0;
+                return (
+                  <div className="mb-3 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-purple-800">전국 교구 제출 현황 (협회 제외)</span>
+                      <span className={`text-sm font-black ${pct === 100 ? 'text-emerald-600' : 'text-purple-700'}`}>{pct}%</span>
+                    </div>
+                    <div className="w-full bg-white/60 rounded-full h-2 overflow-hidden mb-2">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex gap-3 text-[10px] font-semibold">
+                      <span className="text-emerald-600">✅ 제출 {totalSubmitted}</span>
+                      <span className="text-blue-600">📝 작성중 {totalDraft}</span>
+                      <span className="text-slate-400">⬜ 미작성 {totalEmpty}</span>
+                      <span className="text-slate-500 ml-auto">합계 {allChurches.length}개 교회</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Parish Dashboard (Accordion) */}
+              <div className="flex-1 overflow-y-auto pr-2 space-y-2">
                 {Object.keys(PARISH_CHURCH_MAP).map(p => {
                   const churches = PARISH_CHURCH_MAP[p];
-                  // Exclude HQ (first item)
                   const targetChurches = churches.slice(1);
                   if (targetChurches.length === 0) return null;
 
                   const submittedCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                  const draftCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'draft').length;
                   const completionRate = Math.round((submittedCount / targetChurches.length) * 100);
+                  const isExpanded = adminExpandedParish === p;
+                  const isComplete = submittedCount === targetChurches.length;
 
                   return (
-                    <div 
-                      key={p} 
-                      onClick={() => {
-                        if (p === '협회') {
-                          setActiveTab('association');
-                          setParish('협회');
-                          setChurch(churches[0]);
-                        } else {
-                          setActiveTab('report');
-                          setParish(p);
-                          setChurch(churches[0]);
-                        }
-                      }}
-                      className="bg-white border border-slate-200 rounded-xl p-4 transition-all hover:shadow-md hover:border-purple-400 cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5 group-hover:text-purple-700 transition-colors">
-                          <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                          {getDisplayParish(p)}
-                        </h3>
-                        <div className="flex gap-2 text-xs font-semibold text-slate-500">
-                          <span className="text-emerald-600">제출: {submittedCount}</span>
-                          <span className="text-slate-400">/ {targetChurches.length}</span>
-                          <span className="text-purple-600 font-black ml-1 text-sm">{completionRate}%</span>
+                    <div key={p} className={`border rounded-xl overflow-hidden transition-all ${isComplete ? 'border-emerald-200 bg-emerald-50/40' : isExpanded ? 'border-purple-300' : 'border-slate-200 bg-white'}`}>
+                      {/* Header row */}
+                      <div
+                        onClick={() => setAdminExpandedParish(isExpanded ? null : p)}
+                        className="flex items-center gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${isComplete ? 'bg-emerald-500' : draftCount > 0 ? 'bg-blue-400' : 'bg-slate-300'}`} />
+                        <span className="font-extrabold text-sm text-slate-800 flex-1">{getDisplayParish(p)}</span>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className={`font-black ${isComplete ? 'text-emerald-600' : 'text-slate-500'}`}>{submittedCount}/{targetChurches.length}</span>
+                          <span className={`font-black text-sm ${isComplete ? 'text-emerald-600' : completionRate > 0 ? 'text-purple-600' : 'text-slate-400'}`}>{completionRate}%</span>
                         </div>
+                        <ArrowRight className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                       </div>
-                      <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                        <div 
-                          className="bg-purple-500 h-2.5 rounded-full transition-all duration-700 ease-out"
+                      {/* Progress bar */}
+                      <div className="h-1.5 bg-slate-100 mx-3 mb-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ease-out ${isComplete ? 'bg-emerald-500' : 'bg-purple-500'}`}
                           style={{ width: `${completionRate}%` }}
-                        ></div>
+                        />
                       </div>
-                      <div className="mt-2 text-[10px] text-slate-400 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                        교구본부 제외 취합률 (클릭 시 상세 이동)
-                      </div>
+                      {/* Expanded church list */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 px-3 pb-3 pt-2">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {targetChurches.map(c => {
+                              const st = adminReportStatusMap[`${p}_${c}`] || 'empty';
+                              const ts = adminReportTimestampMap[`${p}_${c}`];
+                              return (
+                                <button
+                                  key={c}
+                                  onClick={() => {
+                                    if (p === '협회') { setActiveTab('association'); setParish('협회'); setChurch(c); }
+                                    else { setActiveTab('report'); setParish(p); setChurch(c); }
+                                  }}
+                                  className={`text-left px-2.5 py-2 rounded-lg text-xs transition-colors border ${
+                                    st === 'submitted' ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' :
+                                    st === 'draft' ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' :
+                                    'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <div className={`font-bold truncate ${st === 'submitted' ? 'text-emerald-700' : st === 'draft' ? 'text-blue-700' : 'text-slate-500'}`}>{c}</div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                    {st === 'submitted' ? <><Check className="w-2.5 h-2.5 text-emerald-500" />제출완료</> :
+                                     st === 'draft' ? <><Clock className="w-2.5 h-2.5 text-blue-400" />작성중</> :
+                                     <span className="text-slate-300">미작성</span>}
+                                  </div>
+                                  {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5">{ts}</div>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
