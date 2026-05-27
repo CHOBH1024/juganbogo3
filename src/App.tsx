@@ -258,6 +258,7 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice'>('report');
   const [noticeTitle, setNoticeTitle] = useState('');
+  const [noticeCategory, setNoticeCategory] = useState('공지');
   const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'editor' | 'preview'>('editor');
 
@@ -482,12 +483,13 @@ export default function App() {
     
     setIsUploadingNotice(true);
     try {
-      const newNotice = { 
-        id: Date.now().toString(), 
-        title: noticeTitle, 
+      const newNotice = {
+        id: Date.now().toString(),
+        title: noticeTitle,
+        category: noticeCategory || '공지',
         pdfUrl: noticePdfUrl,
-        data: reportData.length > 0 ? reportData : null, 
-        created_at: new Date().toISOString() 
+        data: reportData.length > 0 ? reportData : null,
+        created_at: new Date().toISOString()
       };
       
       const parsed = await fetchDbData('SYSTEM_NOTICES');
@@ -499,6 +501,7 @@ export default function App() {
       setNotices(newNotices);
       alert('공지사항이 성공적으로 등록되었습니다.');
       setNoticeTitle('');
+      setNoticeCategory('공지');
       setReportData([]);
       setNoticePdfUrl(null);
       setActiveTab('notice');
@@ -1238,11 +1241,12 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
     if (reportData === DEFAULT_REPORT && !lastSaved) return;
+    // 교구/교회 전환 중(isLoadingDataRef=true)에는 저장 금지
+    // — 이전 교회 reportData가 새 교회 키에 덮어쓰이는 것 방지
     if (isLoadingDataRef.current) return;
     const key = `report_${parish}_${church}`;
     const timestamp = lastSaved || new Date().toLocaleString('ko-KR');
-    
-    // 자동저장은 로컬만 (클라우드는 제출 확정 시에만)
+    // 자동저장은 로컬만 (클라우드는 저장 버튼 또는 제출 확정 시에만)
     const saveData = { data: reportData, lastSaved: timestamp, status };
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
@@ -1742,13 +1746,19 @@ export default function App() {
   };
 
   const handleParishChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    // 자동저장 useEffect가 새 교구 키로 이전 데이터를 덮어쓰지 않도록
+    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+    isLoadingDataRef.current = true;
     handleSave(false);
     const newParish = e.target.value;
     setParish(newParish);
     setChurch(PARISH_CHURCH_MAP[newParish][0]);
   };
-  
+
   const handleChurchChange = (newChurch: string) => {
+    // 자동저장 useEffect가 새 교회 키로 이전 데이터를 덮어쓰지 않도록
+    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+    isLoadingDataRef.current = true;
     handleSave(false);
     setChurch(newChurch);
   };
@@ -2963,97 +2973,154 @@ const renderPreviewLines = () => {
       </div>
 
       {activeTab === 'notice' && (
-        <div className="w-full max-w-full px-2 sm:px-4 lg:px-8 mx-auto flex-1 flex flex-col h-[calc(100vh-8rem)]">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row h-full overflow-hidden">
-            <div className="w-full md:w-1/3 lg:w-1/4 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col bg-slate-50 shrink-0">
-              <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Bell className="w-5 h-5 text-blue-500"/> 공지사항</h2>
-                {!isAdmin ? (
-                  <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 px-2 py-1 rounded">관리자 로그인</button>
-                ) : (
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={async () => {
-                        if(window.confirm('정말로 모든 공지사항을 삭제하시겠습니까? (복구 불가)')) {
-                          await supabase.from('reports').upsert({ id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
-                          setNotices([]);
-                          setActiveNotice(null);
-                          alert('모든 공지사항이 초기화되었습니다.');
-                        }
-                      }}
-                      className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1.5 rounded font-bold transition-colors"
-                    >
-                      전체 초기화
+        <div className="w-full max-w-6xl px-4 sm:px-6 lg:px-8 mx-auto flex-1 py-6">
+          {/* Blog header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Bell className="w-6 h-6 text-blue-500"/> 공지사항</h1>
+              <p className="text-sm text-slate-400 mt-0.5">총 {notices.length}개의 공지</p>
+            </div>
+            <div className="flex gap-2 items-center">
+              {!isAdmin ? (
+                <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
+              ) : (
+                <button
+                  onClick={async () => {
+                    if (window.confirm('정말로 모든 공지사항을 삭제하시겠습니까? (복구 불가)')) {
+                      await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
+                      setNotices([]);
+                      setActiveNotice(null);
+                      alert('모든 공지사항이 초기화되었습니다.');
+                    }
+                  }}
+                  className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
+                >전체 초기화</button>
+              )}
+              <button onClick={() => handleNoticeWriteTab()} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold transition-colors flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5" /> 공지 작성
+              </button>
+            </div>
+          </div>
+
+          {/* Card grid */}
+          {notices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+              <Bell className="w-16 h-16 mb-4 text-slate-300" />
+              <p className="text-lg font-medium">등록된 공지사항이 없습니다.</p>
+              <p className="text-sm mt-1">관리자가 공지를 올리면 여기에 표시됩니다.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {notices.map((notice: any) => {
+                const firstImage = notice.data?.find((i: any) => i.image)?.image;
+                const excerpt = notice.data?.filter((i: any) => i.text?.trim()).map((i: any) => i.text).join(' ').slice(0, 120) || '';
+                const catColor: Record<string, string> = { '공지': 'bg-blue-100 text-blue-700', '행사': 'bg-emerald-100 text-emerald-700', '긴급': 'bg-red-100 text-red-700', '안내': 'bg-amber-100 text-amber-700' };
+                const cat = notice.category || '공지';
+                return (
+                  <div
+                    key={notice.id}
+                    onClick={() => setActiveNotice(notice)}
+                    className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg hover:border-blue-200 cursor-pointer group transition-all duration-200"
+                  >
+                    {/* Thumbnail */}
+                    <div className="h-44 overflow-hidden relative">
+                      {firstImage ? (
+                        <img src={firstImage} alt="썸네일" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      ) : notice.pdfUrl ? (
+                        <div className="w-full h-full bg-gradient-to-br from-red-400 to-rose-600 flex items-center justify-center">
+                          <FileText className="w-12 h-12 text-white/80" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 flex items-center justify-center">
+                          <Bell className="w-12 h-12 text-white/60" />
+                        </div>
+                      )}
+                      <div className="absolute top-3 left-3">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${catColor[cat] || 'bg-slate-100 text-slate-600'}`}>{cat}</span>
+                      </div>
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteNotice(notice.id); }}
+                          className="absolute top-2 right-2 bg-black/40 hover:bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all"
+                        ><X className="w-3.5 h-3.5" /></button>
+                      )}
+                    </div>
+                    {/* Card body */}
+                    <div className="p-4">
+                      <p className="text-[11px] text-slate-400 mb-1.5">{new Date(notice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                      <h3 className="font-bold text-slate-800 text-base leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">{notice.title}</h3>
+                      {excerpt && <p className="text-xs text-slate-500 leading-relaxed line-clamp-3">{excerpt}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Full article modal */}
+          {activeNotice && (
+            <div className="fixed inset-0 z-50 bg-white overflow-y-auto" onClick={() => setActiveNotice(null)}>
+              <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8" onClick={e => e.stopPropagation()}>
+                {/* Nav */}
+                <button onClick={() => setActiveNotice(null)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 mb-8 font-medium transition-colors">
+                  <ArrowLeft className="w-4 h-4" /> 목록으로
+                </button>
+                {/* Category + Date */}
+                <div className="flex items-center gap-3 mb-4">
+                  {activeNotice.category && (
+                    <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">{activeNotice.category}</span>
+                  )}
+                  <span className="text-sm text-slate-400">{new Date(activeNotice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</span>
+                </div>
+                {/* Title */}
+                <h1 className="text-3xl sm:text-4xl font-black text-slate-900 leading-tight mb-8 pb-6 border-b border-slate-200">{activeNotice.title}</h1>
+                {/* PDF */}
+                {activeNotice.pdfUrl && (
+                  <iframe src={activeNotice.pdfUrl} className="w-full border border-slate-200 rounded-xl mb-8 min-h-[600px]" title="PDF" />
+                )}
+                {/* Rich content */}
+                {activeNotice.data && activeNotice.data.length > 0 && (
+                  <div className="prose max-w-none">
+                    {activeNotice.data.map((item: any) => (
+                      <div key={item.id} className="mb-4">
+                        {item.level === 0 ? (
+                          <h2 className="text-xl font-black text-slate-800 mt-10 mb-3 pb-2 border-b border-slate-200">{item.text}</h2>
+                        ) : item.level === 1 ? (
+                          <h3 className="text-lg font-bold text-slate-700 mt-6 mb-2">{item.text}</h3>
+                        ) : item.text ? (
+                          <p className="text-base text-slate-700 leading-[1.9] mb-2 whitespace-pre-wrap" style={{ paddingLeft: `${Math.max(0, (item.level - 2)) * 20}px` }}>{item.text}</p>
+                        ) : null}
+                        {item.image && <img src={item.image} alt="" className="mt-4 mb-4 w-full rounded-xl border border-slate-200 shadow-sm object-contain max-h-[600px]" />}
+                        {item.tableData && (
+                          <div className="mt-4 mb-4 overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                            <table className="w-full border-collapse text-sm">
+                              <tbody>
+                                {item.tableData.map((row: any, rIdx: number) => (
+                                  <tr key={rIdx} className={rIdx === 0 ? 'bg-slate-800 text-white font-bold' : rIdx % 2 === 0 ? 'bg-slate-50' : 'bg-white'}>
+                                    {row.map((cell: any, cIdx: number) => (
+                                      <td key={cIdx} className="border border-slate-200 px-4 py-2.5">{cell}</td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Admin delete */}
+                {isAdmin && (
+                  <div className="mt-12 pt-6 border-t border-slate-200">
+                    <button onClick={() => { deleteNotice(activeNotice.id); }} className="text-sm text-red-500 hover:text-red-700 font-medium flex items-center gap-1.5">
+                      <Trash2 className="w-4 h-4" /> 이 공지 삭제
                     </button>
                   </div>
                 )}
               </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {notices.length === 0 ? (
-                  <div className="text-center text-slate-400 py-10 text-sm">등록된 공지사항이 없습니다.</div>
-                ) : (
-                  notices.map(notice => (
-                    <div key={notice.id} onClick={() => setActiveNotice(notice)} className={`p-3 rounded-lg cursor-pointer transition-colors border ${activeNotice?.id === notice.id ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-transparent hover:border-slate-200'}`}>
-                      <div className="flex justify-between items-start">
-                        <div className="font-medium text-slate-800 text-sm leading-snug">{notice.title}</div>
-                        {isAdmin && (
-                          <button onClick={(e) => { e.stopPropagation(); deleteNotice(notice.id); }} className="text-red-400 hover:text-red-600 p-1 shrink-0"><X className="w-3.5 h-3.5"/></button>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-400 mt-2">{new Date(notice.created_at).toLocaleDateString()}</div>
-                    </div>
-                  ))
-                )}
-              </div>
             </div>
-            <div className="w-full md:w-2/3 lg:w-3/4 bg-slate-200 flex-1 relative flex flex-col h-full overflow-y-auto">
-              {activeNotice ? (
-                <div className="flex-1 flex flex-col h-full">
-                  {activeNotice.pdfUrl && (
-                    <iframe src={activeNotice.pdfUrl} className="w-full border-0 flex-1 min-h-[1000px]" title="PDF Viewer" />
-                  )}
-                  {activeNotice.data && activeNotice.data.length > 0 && (
-                    <div className="p-6 md:p-10 bg-white font-serif text-slate-900 mx-auto w-full max-w-4xl shadow-sm min-h-full">
-                      <h1 className="text-2xl md:text-3xl font-black mb-8 pb-4 border-b-2 border-blue-600 text-center text-slate-800">{activeNotice.title}</h1>
-                      {activeNotice.data.map((item: any) => (
-                        <div key={item.id} className="mb-3" style={{ paddingLeft: `${item.level * 24}px` }}>
-                          {item.level === 0 ? (
-                            <div className="font-bold text-lg md:text-xl text-blue-800 border-b border-blue-100 pb-1 mt-6 mb-2">{item.text}</div>
-                          ) : (
-                            <div className="flex items-start gap-2 text-sm md:text-base text-slate-800">
-                              <span className="text-blue-500 mt-0.5">•</span>
-                              <div className="whitespace-pre-wrap leading-relaxed flex-1">{item.text}</div>
-                            </div>
-                          )}
-                          {item.image && <img src={item.image} alt="첨부" className="mt-3 max-h-64 object-contain rounded-lg border border-slate-200 shadow-sm" />}
-                          {item.tableData && (
-                            <div className="mt-3 overflow-x-auto w-full">
-                              <table className="w-full border-collapse border border-slate-300 text-xs md:text-sm text-center bg-white shadow-sm">
-                                <tbody>
-                                  {item.tableData.map((row: any, rIdx: number) => (
-                                    <tr key={rIdx} className={rIdx === 0 ? "bg-slate-100 font-bold border-b-2 border-slate-300" : "hover:bg-slate-50 transition-colors"}>
-                                      {row.map((cell: any, cIdx: number) => (
-                                        <td key={cIdx} className={`border border-slate-300 p-2 md:p-3 ${cIdx === 0 ? 'bg-slate-50 font-bold text-slate-700' : 'text-slate-600'}`}>{cell}</td>
-                                      ))}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                  <FileText className="w-16 h-16 mb-4 text-slate-300 opacity-50" />
-                  <p>좌측에서 공지사항을 선택하시면 내용이 표시됩니다.</p>
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -3113,17 +3180,32 @@ const renderPreviewLines = () => {
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
                 {activeTab === 'notice_write' ? (
-                  <div className="flex-1 flex gap-2 items-end">
-                    <div className="flex-1">
-                      <label className="block text-xs font-bold text-slate-500 mb-1">공지사항 제목</label>
-                      <input type="text" value={noticeTitle} onChange={e => setNoticeTitle(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-medium" placeholder="제목을 입력하세요..." />
+                  <div className="flex-1 flex flex-col gap-2">
+                    <input
+                      type="text"
+                      value={noticeTitle}
+                      onChange={e => setNoticeTitle(e.target.value)}
+                      className="w-full px-0 py-1 border-0 border-b-2 border-slate-200 focus:border-blue-500 text-2xl font-black text-slate-800 bg-transparent outline-none placeholder:text-slate-300 transition-colors"
+                      placeholder="공지 제목을 입력하세요..."
+                    />
+                    <div className="flex gap-2 items-center flex-wrap">
+                      <div className="flex gap-1.5">
+                        {['공지', '행사', '긴급', '안내'].map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setNoticeCategory(cat)}
+                            className={`text-xs font-bold px-2.5 py-1 rounded-full border transition-colors ${noticeCategory === cat ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'}`}
+                          >{cat}</button>
+                        ))}
+                      </div>
+                      <div className="h-4 w-px bg-slate-200" />
+                      <label className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1 rounded-full cursor-pointer font-medium flex items-center gap-1 transition-colors shrink-0">
+                        {isUploadingNotice ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                        {isUploadingNotice ? 'PDF 첨부 중...' : 'PDF 첨부'}
+                        <input type="file" accept="application/pdf" className="hidden" onChange={handleNoticePdfUpload} disabled={isUploadingNotice} />
+                      </label>
+                      {noticePdfUrl && <span className="text-xs text-blue-600 font-semibold flex items-center gap-1"><Check className="w-3 h-3" /> PDF 첨부됨</span>}
                     </div>
-                    <label className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-3 py-2.5 rounded cursor-pointer font-bold flex items-center gap-1 transition-colors shrink-0 h-[38px]">
-                      {isUploadingNotice ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                      {isUploadingNotice ? 'PDF 첨부중...' : 'PDF 첨부 (선택)'}
-                      <input type="file" accept="application/pdf" className="hidden" onChange={handleNoticePdfUpload} disabled={isUploadingNotice} />
-                    </label>
-                    {noticePdfUrl && <span className="text-xs text-blue-600 font-bold mb-2 shrink-0 self-center">PDF 첨부됨</span>}
                   </div>
                 ) : (
                   <>
