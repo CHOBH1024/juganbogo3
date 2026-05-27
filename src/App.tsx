@@ -273,6 +273,7 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const docUploadRef = useRef<HTMLInputElement>(null);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
@@ -403,13 +404,15 @@ export default function App() {
       } catch (e) { console.error(e); }
     };
     loadConfig();
+    // 앱 시작 시 공지사항 미리 로드 (배지 표시를 위해)
+    loadNotices();
   }, []);
 
   const handleAdminLogin = () => {
     const pwd = prompt('관리자 비밀번호를 입력하세요:');
     if (pwd === 'skmt0909!') {
       setIsAdmin(true);
-      alert('관리자로 로그인되었습니다.');
+      toast.success('관리자로 로그인되었습니다.');
     } else {
       if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
     }
@@ -1164,6 +1167,7 @@ export default function App() {
 
     const loadData = async () => {
       isLoadingDataRef.current = true;
+      setIsLoadingData(true);
       const key = `report_${parish}_${church}`;
       const savedLocal = localStorage.getItem(key);
       let localParsed: any = null;
@@ -1197,6 +1201,7 @@ export default function App() {
                localStorage.setItem(key, JSON.stringify(supaData));
                setAiCorrections(null);
                isLoadingDataRef.current = false;
+               setIsLoadingData(false);
                return;
             }
          } catch(e) {
@@ -1227,6 +1232,7 @@ export default function App() {
       setAiCorrections(null);
 
       isLoadingDataRef.current = false;
+      setIsLoadingData(false);
       // 백그라운드 프리로드: 같은 교구 내 다른 교회를 미리 Drive에서 캐시
       const churches = PARISH_CHURCH_MAP[parish] || [];
       churches.forEach((c: string) => {
@@ -3241,11 +3247,15 @@ const renderPreviewLines = () => {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 {activeTab === 'association' ? '협회 보고서 작성' : activeTab === 'notice_write' ? '공지사항 작성 에디터' : '교구 보고서 작성'}
-                {lastSaved && (
+                {isLoadingData ? (
+                  <span className="text-xs font-normal text-blue-500 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-full animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> 불러오는 중...
+                  </span>
+                ) : lastSaved ? (
                   <span className="text-xs font-normal text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full">
                     <Clock className="w-3 h-3" /> 최근 저장: {lastSaved}
                   </span>
-                )}
+                ) : null}
               </h2>
               <div className="flex gap-2">
                 <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
@@ -3338,7 +3348,19 @@ const renderPreviewLines = () => {
               {role !== 'church' && (
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-bold text-slate-500">교회별 제출 현황</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-500">교회별 제출 현황</span>
+                      {(() => {
+                        const churches = PARISH_CHURCH_MAP[parish] || [];
+                        const submitted = churches.filter(c => parishStats[c] === 'submitted').length;
+                        const total = churches.length;
+                        return (
+                          <span className={`text-xs font-black px-2 py-0.5 rounded-full ${submitted === total ? 'bg-emerald-100 text-emerald-700' : submitted > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'}`}>
+                            {submitted}/{total} 제출
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <div className="flex gap-3 text-[10px] text-slate-500">
                       <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>제출 확정</span>
                       <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>작성 중</span>
