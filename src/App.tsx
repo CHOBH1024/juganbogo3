@@ -3473,7 +3473,24 @@ const renderPreviewLines = () => {
 
       {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
       <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0">
-        
+
+        {/* 교회장: 제출 상태 배너 */}
+        {role === 'church' && activeTab === 'report' && (
+          <div className={`mb-2 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${
+            status === 'submitted'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+              : 'bg-amber-50 border border-amber-200 text-amber-700'
+          }`}>
+            {status === 'submitted' ? (
+              <><CheckCircle className="w-4 h-4 shrink-0" /> {church} 보고서가 제출되었습니다. {lastSaved && <span className="font-normal text-emerald-600 ml-1">{getRelativeTime(lastSaved) || lastSaved} 제출</span>}</>
+            ) : (
+              <><AlertCircle className="w-4 h-4 shrink-0" /> 아직 제출하지 않았습니다. 작성 완료 후 <strong>제출 확정</strong>을 눌러주세요.
+                {appConfig?.deadline && <span className="ml-2 text-amber-600">마감: {appConfig.deadline}</span>}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Mobile Submit Button */}
         <div className="flex xl:hidden mb-3 gap-2 justify-end">
           {activeTab !== 'notice_write' && (
