@@ -318,6 +318,11 @@ export default function App() {
   const [resetSelectedChurches, setResetSelectedChurches] = useState<{ [k: string]: string[] }>({});
   const [resetMode, setResetMode] = useState<'quick' | 'custom'>('quick');
 
+  // 내 교회 변경 모달 (church 역할 전용)
+  const [showChurchChangeModal, setShowChurchChangeModal] = useState(false);
+  const [churchChangeParish, setChurchChangeParish] = useState(parish);
+  const [churchChangeChurch, setChurchChangeChurch] = useState(church);
+
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedField(field);
@@ -1157,6 +1162,7 @@ export default function App() {
                setNextId(maxId + 1);
                localStorage.setItem(key, JSON.stringify(supaData));
                setAiCorrections(null);
+               isLoadingDataRef.current = false;
                return;
             }
          } catch(e) {
@@ -2782,22 +2788,15 @@ const renderPreviewLines = () => {
 
     if (window.confirm(confirmMsg)) {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
-      
+
       for (const p of targetParishes) {
         for (const c of PARISH_CHURCH_MAP[p]) {
           const key = `report_${p}_${c}`;
           localStorage.setItem(key, JSON.stringify(defaultData));
-          
-          if (supabase) {
-            try {
-              await supabase.from('reports').upsert({
-                id: `${p}_${c}`,
-                ...defaultData,
-                updated_at: new Date().toISOString()
-              });
-            } catch (e) {
-              console.error(e);
-            }
+          try {
+            await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+          } catch (e) {
+            console.error(e);
           }
         }
       }
@@ -2870,22 +2869,15 @@ const renderPreviewLines = () => {
 
     if (window.confirm(`[${sDate}] (천력 ${hDate}) 주간 취합 모드로 변경하며, 모든 교구/교회의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
-      
+
       for (const p of Object.keys(PARISH_CHURCH_MAP)) {
         for (const c of PARISH_CHURCH_MAP[p]) {
           const key = `report_${p}_${c}`;
           localStorage.setItem(key, JSON.stringify(defaultData));
-          
-          if (supabase) {
-            try {
-              await supabase.from('reports').upsert({
-                id: `${p}_${c}`,
-                ...defaultData,
-                updated_at: new Date().toISOString()
-              });
-            } catch (e) {
-              console.error(e);
-            }
+          try {
+            await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+          } catch (e) {
+            console.error(e);
           }
         }
       }
@@ -2970,14 +2962,9 @@ const renderPreviewLines = () => {
           {role === 'church' && (
             <button
               onClick={() => {
-                const newParishName = window.prompt('교구 이름을 입력하세요 (예: 천원특별):', parish);
-                if (!newParishName || !PARISH_CHURCH_MAP[newParishName]) { if (newParishName !== null) alert('존재하지 않는 교구입니다.'); return; }
-                const newChurchName = window.prompt('교회 이름을 입력하세요:', church);
-                if (!newChurchName || !PARISH_CHURCH_MAP[newParishName].includes(newChurchName)) { if (newChurchName !== null) alert('해당 교구에 존재하지 않는 교회입니다.'); return; }
-                localStorage.setItem('APP_PARISH', newParishName);
-                localStorage.setItem('APP_CHURCH', newChurchName);
-                setParish(newParishName);
-                setChurch(newChurchName);
+                setChurchChangeParish(parish);
+                setChurchChangeChurch(church);
+                setShowChurchChangeModal(true);
               }}
               className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
             >
@@ -3925,11 +3912,9 @@ const renderPreviewLines = () => {
                           for (const c of PARISH_CHURCH_MAP[p]) {
                             const key = `report_${p}_${c}`;
                             localStorage.setItem(key, JSON.stringify(defaultData));
-                            if (supabase) {
-                              try {
-                                await supabase.from('reports').upsert({ id: `${p}_${c}`, ...defaultData, updated_at: new Date().toISOString() });
-                              } catch(e){}
-                            }
+                            try {
+                              await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+                            } catch(e){}
                           }
                         }
                         const newConfig = { solarDate: sDate, heavenlyDate: hDate };
@@ -4831,6 +4816,71 @@ const renderPreviewLines = () => {
       )}
 
       {/* Reset Modal */}
+      {/* 내 교회 변경 모달 */}
+      {showChurchChangeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowChurchChangeModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100" onClick={e => e.stopPropagation()}>
+            <div className="bg-amber-600 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2"><ArrowRight className="w-4 h-4"/> 내 교회 변경</h3>
+                <p className="text-amber-200 text-xs mt-0.5">교구와 교회를 선택하세요</p>
+              </div>
+              <button onClick={() => setShowChurchChangeModal(false)} className="text-white/70 hover:text-white rounded-full p-1.5 hover:bg-white/20 transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">교구 선택</label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                  value={churchChangeParish}
+                  onChange={e => {
+                    const p = e.target.value;
+                    setChurchChangeParish(p);
+                    setChurchChangeChurch(PARISH_CHURCH_MAP[p][0]);
+                  }}
+                >
+                  {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
+                    <option key={p} value={p}>{getDisplayParish(p)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">교회 선택</label>
+                <select
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                  value={churchChangeChurch}
+                  onChange={e => setChurchChangeChurch(e.target.value)}
+                >
+                  {(PARISH_CHURCH_MAP[churchChangeParish] || []).map(c => (
+                    <option key={c} value={c}>{getDisplayChurch(c)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setShowChurchChangeModal(false)}
+                  className="flex-1 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('APP_PARISH', churchChangeParish);
+                    localStorage.setItem('APP_CHURCH', churchChangeChurch);
+                    setParish(churchChangeParish);
+                    setChurch(churchChangeChurch);
+                    setShowChurchChangeModal(false);
+                  }}
+                  className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  <ArrowRight className="w-4 h-4"/> 변경하기
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showResetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowResetModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
