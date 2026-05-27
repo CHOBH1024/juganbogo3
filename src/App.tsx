@@ -330,6 +330,8 @@ export default function App() {
   const [adminReportTimestampMap, setAdminReportTimestampMap] = useState<Record<string, string | null>>({});
   const [adminExpandedParish, setAdminExpandedParish] = useState<string | null>(null);
   const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
+  const [adminLastRefreshed, setAdminLastRefreshed] = useState<Date | null>(null);
+  const [adminAutoRefresh, setAdminAutoRefresh] = useState(false);
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
   const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
 
@@ -404,6 +406,27 @@ export default function App() {
     } else {
       setPasswordModalError('비밀번호가 일치하지 않습니다.');
     }
+  };
+
+  const getRelativeTime = (dateStr: string | null): string => {
+    if (!dateStr) return '';
+    try {
+      // dateStr can be "2026. 5. 27. 오전 3:25:00" (ko-KR locale) or ISO
+      const date = new Date(dateStr.replace(/(\d{4})\. (\d+)\. (\d+)\. (오전|오후) (\d+):(\d+):(\d+)/, (_, y, m, d, ampm, h, min, s) => {
+        let hour = parseInt(h);
+        if (ampm === '오후' && hour < 12) hour += 12;
+        if (ampm === '오전' && hour === 12) hour = 0;
+        return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${String(hour).padStart(2,'0')}:${min}:${s}`;
+      }));
+      if (isNaN(date.getTime())) return dateStr;
+      const diffMs = Date.now() - date.getTime();
+      const diffMin = Math.floor(diffMs / 60000);
+      if (diffMin < 1) return '방금 전';
+      if (diffMin < 60) return `${diffMin}분 전`;
+      const diffH = Math.floor(diffMin / 60);
+      if (diffH < 24) return `${diffH}시간 전`;
+      return `${Math.floor(diffH / 24)}일 전`;
+    } catch { return dateStr; }
   };
 
   const copyToClipboard = (text: string, field: string) => {
@@ -706,6 +729,7 @@ export default function App() {
     }
     setAdminReportStatusMap(stats);
     setAdminReportTimestampMap(timestamps);
+    setAdminLastRefreshed(new Date());
   };
 
   useEffect(() => {
@@ -731,6 +755,15 @@ export default function App() {
       });
     }
   }, [activeTab, parish, church, status, reportData]);
+
+  // 관리자 콘솔 자동 새로고침
+  useEffect(() => {
+    if (!adminAutoRefresh || activeTab !== 'admin_console') return;
+    const interval = setInterval(() => {
+      loadAllReportsStatus();
+    }, 60000); // 60초마다
+    return () => clearInterval(interval);
+  }, [adminAutoRefresh, activeTab]);
 
   const startAdminAiReview = async () => {
     setIsAdminCheckingAI(true);
@@ -3362,8 +3395,8 @@ const renderPreviewLines = () => {
                     <RefreshCw className="w-3 h-3 animate-spin" /> 불러오는 중...
                   </span>
                 ) : lastSaved ? (
-                  <span className="text-xs font-normal text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full">
-                    <Clock className="w-3 h-3" /> 최근 저장: {lastSaved}
+                  <span className="text-xs font-normal text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full" title={lastSaved}>
+                    <Clock className="w-3 h-3" /> 저장: {getRelativeTime(lastSaved) || lastSaved}
                   </span>
                 ) : null}
               </h2>
@@ -4117,26 +4150,49 @@ const renderPreviewLines = () => {
           <div className="grid grid-cols-1 xl:grid-cols-[40%_60%] gap-4 lg:gap-6 flex-1 min-h-0">
             {/* Left Panel: Submission Status Grid */}
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-12rem)] xl:h-[calc(100vh-8rem)]">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
-                <div>
+              <div className="flex items-start justify-between pb-4 border-b border-slate-200 mb-4 gap-2">
+                <div className="min-w-0">
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
                     <Settings className="w-5 h-5 text-purple-600 animate-spin-slow" />
                     전체 교구 제출현황 및 제어
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">전국 교구와 협회 부서의 작성 현황을 확인하고 제어합니다.</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <p className="text-xs text-slate-500">전국 교구와 협회 부서의 작성 현황</p>
+                    {adminLastRefreshed && (
+                      <span className="text-[10px] text-slate-400" title={adminLastRefreshed.toLocaleTimeString('ko-KR')}>
+                        갱신: {adminLastRefreshed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setNewWeekPassword('');
-                    setNewWeekSolarDate(appConfig?.solarDate || '');
-                    setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
-                    setNewWeekPasswordError('');
-                    setShowNewWeekModal(true);
-                  }}
-                  className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> 새 주간보고 시작
-                </button>
+                <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
+                  <button
+                    onClick={() => loadAllReportsStatus()}
+                    className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                    title="현황 새로고침"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => setAdminAutoRefresh(v => !v)}
+                    className={`px-2 py-1.5 border rounded-lg text-xs font-bold transition-colors flex items-center gap-1 ${adminAutoRefresh ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                    title={adminAutoRefresh ? '자동 갱신 켜짐 (60초마다)' : '자동 갱신 꺼짐'}
+                  >
+                    <Clock className="w-3 h-3" /> {adminAutoRefresh ? '자동 ON' : '자동 OFF'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNewWeekPassword('');
+                      setNewWeekSolarDate(appConfig?.solarDate || '');
+                      setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
+                      setNewWeekPasswordError('');
+                      setShowNewWeekModal(true);
+                    }}
+                    className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3 h-3" /> 새 주간보고
+                  </button>
+                </div>
               </div>
 
               {/* 전국 종합 현황 요약 */}
@@ -4228,7 +4284,7 @@ const renderPreviewLines = () => {
                                      st === 'draft' ? <><Clock className="w-2.5 h-2.5 text-blue-400" />작성중</> :
                                      <span className="text-slate-300">미작성</span>}
                                   </div>
-                                  {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5">{ts}</div>}
+                                  {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5" title={ts}>{getRelativeTime(ts) || ts}</div>}
                                 </button>
                               );
                             })}
