@@ -2947,7 +2947,7 @@ const renderPreviewLines = () => {
               <span className="text-[10px] font-bold">관리자</span>
             </button>
           )}
-          <button onClick={() => { localStorage.removeItem('APP_ROLE'); window.location.reload(); }} className="flex flex-col items-center p-2 flex-1 text-slate-400 hover:text-red-500">
+          <button onClick={() => { localStorage.removeItem('APP_ROLE'); localStorage.removeItem('APP_PARISH'); localStorage.removeItem('APP_CHURCH'); setRole(null); }} className="flex flex-col items-center p-2 flex-1 text-slate-400 hover:text-red-500">
             <User className="w-6 h-6 mb-1"/>
             <span className="text-[10px] font-bold">모드변경</span>
           </button>
@@ -2967,7 +2967,24 @@ const renderPreviewLines = () => {
           >
             <BookOpen className="w-3.5 h-3.5"/> 작성 가이드
           </button>
-          <button onClick={() => { localStorage.removeItem('APP_ROLE'); window.location.reload(); }} className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0">
+          {role === 'church' && (
+            <button
+              onClick={() => {
+                const newParishName = window.prompt('교구 이름을 입력하세요 (예: 천원특별):', parish);
+                if (!newParishName || !PARISH_CHURCH_MAP[newParishName]) { if (newParishName !== null) alert('존재하지 않는 교구입니다.'); return; }
+                const newChurchName = window.prompt('교회 이름을 입력하세요:', church);
+                if (!newChurchName || !PARISH_CHURCH_MAP[newParishName].includes(newChurchName)) { if (newChurchName !== null) alert('해당 교구에 존재하지 않는 교회입니다.'); return; }
+                localStorage.setItem('APP_PARISH', newParishName);
+                localStorage.setItem('APP_CHURCH', newChurchName);
+                setParish(newParishName);
+                setChurch(newChurchName);
+              }}
+              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+            >
+              <ArrowRight className="w-3.5 h-3.5"/> 내 교회 변경
+            </button>
+          )}
+          <button onClick={() => { localStorage.removeItem('APP_ROLE'); localStorage.removeItem('APP_PARISH'); localStorage.removeItem('APP_CHURCH'); setRole(null); }} className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0">
             <User className="w-3.5 h-3.5"/> 권한 변경
           </button>
         </div>
