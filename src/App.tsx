@@ -4046,7 +4046,29 @@ const renderPreviewLines = () => {
               );
             })()})})()}
             
-            <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+            {/* 빠른 대항목 템플릿 */}
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <p className="text-[10px] text-slate-400 font-semibold mb-2 uppercase tracking-wide">빠른 대항목 추가</p>
+              <div className="flex flex-wrap gap-1.5">
+                {['전주 결과보고', '금주 계획 및 보고', '특별활동', '교육 및 훈련', '봉사 활동', '전도 및 선교', '기타'].map(title => (
+                  <button
+                    key={title}
+                    onClick={() => {
+                      const newItem = { id: nextId, text: title, level: 0, isFixed: false };
+                      const newChild = { id: nextId + 1, text: "", level: 1 };
+                      setNextId(prev => prev + 2);
+                      setReportData(data => [...data, newItem, newChild]);
+                      setTimeout(() => { document.getElementById(`input-${newChild.id}`)?.focus(); }, 10);
+                    }}
+                    className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />{title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
               <button
                 onClick={() => addNewItem(-1, 1)}
                 className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-500 hover:text-blue-600 p-2.5 rounded-lg text-sm font-medium transition-all"
