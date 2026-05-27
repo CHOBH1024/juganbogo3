@@ -3167,6 +3167,27 @@ const renderPreviewLines = () => {
               {appConfig.solarDate} (천력 {appConfig.heavenlyDate}) 취합 중...
             </span>
           )}
+          {/* 전국 제출률 뱃지 (admin / manager) */}
+          {(role === 'admin' || role === 'manager') && (() => {
+            const allKeys = Object.entries(PARISH_CHURCH_MAP)
+              .filter(([p]) => p !== '협회')
+              .flatMap(([p, cs]) => (cs as string[]).slice(1).map(c => `${p}_${c}`));
+            const submitted = allKeys.filter(k => adminReportStatusMap[k] === 'submitted').length;
+            const pct = allKeys.length > 0 ? Math.round((submitted / allKeys.length) * 100) : 0;
+            return (
+              <span
+                className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-black whitespace-nowrap ${
+                  pct === 100 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                  pct >= 50 ? 'bg-blue-50 border-blue-200 text-blue-700' :
+                  'bg-amber-50 border-amber-200 text-amber-700'
+                }`}
+                title={`전국 교구 제출현황: ${submitted}/${allKeys.length}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${pct === 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-500'} animate-pulse`} />
+                전국 {pct}% ({submitted}/{allKeys.length})
+              </span>
+            );
+          })()}
           <span className="text-blue-600 font-extrabold hidden md:inline whitespace-nowrap">☁️ 클라우드</span>
           
           <button 
@@ -3597,6 +3618,19 @@ const renderPreviewLines = () => {
                       </button>
                     );
                   })()}
+                  {/* 교구 Word 내보내기 (사무장용) */}
+                  {role === 'manager' && (
+                    <button
+                      onClick={() => {
+                        openPasswordModal('교구 Word 내보내기', (pwd) => pwd === 'skmt0909!' || pwd === 'samu', (pwd) => {
+                          exportToWord();
+                        });
+                      }}
+                      className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-bold transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" /> {getDisplayParish(parish)} 교구 Word 내보내기
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -4330,16 +4364,20 @@ const renderPreviewLines = () => {
                 );
               })()}
 
-              {/* Parish Dashboard (Accordion) */}
+              {/* Parish Dashboard (Accordion) — 미제출순 정렬 */}
               <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-                {Object.keys(PARISH_CHURCH_MAP).map(p => {
-                  const churches = PARISH_CHURCH_MAP[p];
-                  const targetChurches = churches.slice(1);
-                  if (targetChurches.length === 0) return null;
-
-                  const submittedCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                {Object.keys(PARISH_CHURCH_MAP)
+                  .map(p => {
+                    const churches = PARISH_CHURCH_MAP[p];
+                    const targetChurches = churches.slice(1);
+                    const submittedCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                    const completionRate = targetChurches.length > 0 ? Math.round((submittedCount / targetChurches.length) * 100) : 0;
+                    return { p, targetChurches, submittedCount, completionRate };
+                  })
+                  .filter(({ targetChurches }) => targetChurches.length > 0)
+                  .sort((a, b) => a.completionRate - b.completionRate)
+                  .map(({ p, targetChurches, submittedCount, completionRate }) => {
                   const draftCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'draft').length;
-                  const completionRate = Math.round((submittedCount / targetChurches.length) * 100);
                   const isExpanded = adminExpandedParish === p;
                   const isComplete = submittedCount === targetChurches.length;
 
@@ -4373,26 +4411,52 @@ const renderPreviewLines = () => {
                               const st = adminReportStatusMap[`${p}_${c}`] || 'empty';
                               const ts = adminReportTimestampMap[`${p}_${c}`];
                               return (
-                                <button
+                                <div
                                   key={c}
-                                  onClick={() => {
-                                    if (p === '협회') { setActiveTab('association'); setParish('협회'); setChurch(c); }
-                                    else { setActiveTab('report'); setParish(p); setChurch(c); }
-                                  }}
-                                  className={`text-left px-2.5 py-2 rounded-lg text-xs transition-colors border ${
-                                    st === 'submitted' ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' :
-                                    st === 'draft' ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' :
-                                    'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                                  className={`relative rounded-lg text-xs border group ${
+                                    st === 'submitted' ? 'bg-emerald-50 border-emerald-200' :
+                                    st === 'draft' ? 'bg-blue-50 border-blue-200' :
+                                    'bg-slate-50 border-slate-200'
                                   }`}
                                 >
-                                  <div className={`font-bold truncate ${st === 'submitted' ? 'text-emerald-700' : st === 'draft' ? 'text-blue-700' : 'text-slate-500'}`}>{c}</div>
-                                  <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                                    {st === 'submitted' ? <><Check className="w-2.5 h-2.5 text-emerald-500" />제출완료</> :
-                                     st === 'draft' ? <><Clock className="w-2.5 h-2.5 text-blue-400" />작성중</> :
-                                     <span className="text-slate-300">미작성</span>}
-                                  </div>
-                                  {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5" title={ts}>{getRelativeTime(ts) || ts}</div>}
-                                </button>
+                                  <button
+                                    onClick={() => {
+                                      if (p === '협회') { setActiveTab('association'); setParish('협회'); setChurch(c); }
+                                      else { setActiveTab('report'); setParish(p); setChurch(c); }
+                                    }}
+                                    className="text-left px-2.5 py-2 w-full"
+                                  >
+                                    <div className={`font-bold truncate ${st === 'submitted' ? 'text-emerald-700' : st === 'draft' ? 'text-blue-700' : 'text-slate-500'}`}>{c}</div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                      {st === 'submitted' ? <><Check className="w-2.5 h-2.5 text-emerald-500" />제출완료</> :
+                                       st === 'draft' ? <><Clock className="w-2.5 h-2.5 text-blue-400" />작성중</> :
+                                       <span className="text-slate-300">미작성</span>}
+                                    </div>
+                                    {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5" title={ts}>{getRelativeTime(ts) || ts}</div>}
+                                  </button>
+                                  {/* 초기화 버튼 (호버 시 표시) */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openPasswordModal(`[${c}] 초기화`, (pwd) => pwd === 'skmt0909!', async () => {
+                                        const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+                                        const key = `report_${p}_${c}`;
+                                        localStorage.setItem(key, JSON.stringify(defaultData));
+                                        sessionStorage.removeItem(key);
+                                        try {
+                                          await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+                                        } catch {}
+                                        setAdminReportStatusMap(prev => ({ ...prev, [`${p}_${c}`]: 'empty' }));
+                                        setAdminReportTimestampMap(prev => ({ ...prev, [`${p}_${c}`]: null }));
+                                        toast.success(`[${c}] 보고서가 초기화되었습니다.`);
+                                      });
+                                    }}
+                                    className="absolute top-1 right-1 hidden group-hover:flex w-5 h-5 items-center justify-center bg-red-50 hover:bg-red-100 border border-red-200 text-red-400 hover:text-red-600 rounded transition-colors"
+                                    title="이 교회 보고서 초기화"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>
