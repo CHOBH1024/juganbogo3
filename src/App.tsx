@@ -261,6 +261,7 @@ export default function App() {
   const [jsonFormat, setJsonFormat] = useState<'flat' | 'tree'>('flat');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [showSubmitCelebration, setShowSubmitCelebration] = useState(false);
   const [driveSaveResult, setDriveSaveResult] = useState<'ok' | 'skipped' | 'error' | 'saving' | null>(null);
   const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
   const [isCheckingAI, setIsCheckingAI] = useState(false);
@@ -2077,7 +2078,7 @@ export default function App() {
         setDriveSaveResult(result as any || null);
         if (result === 'ok') {
           setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-          if (isSubmit) toast.success('✅ 제출이 완료되었습니다!');
+          if (isSubmit) { toast.success('✅ 제출이 완료되었습니다!'); setShowSubmitCelebration(true); setTimeout(() => setShowSubmitCelebration(false), 4000); }
           else toast.success('☁️ 저장되었습니다.');
         } else if (result === 'skipped') {
           toast.info('로컬 저장 완료 (Drive 연동 대기 중)');
@@ -3110,30 +3111,45 @@ const renderPreviewLines = () => {
         </div>
         
         {/* Mobile Bottom Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around p-2 z-[60] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe">
-          <button onClick={() => setActiveTab('report')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'report' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
-            <BookOpen className="w-6 h-6 mb-1"/>
+        <div className="md:hidden fixed bottom-0 left-0 w-full bg-white/95 backdrop-blur-sm border-t border-slate-200 flex justify-around z-[60] shadow-[0_-4px_12px_-1px_rgba(0,0,0,0.08)] pb-safe">
+          {/* 업무보고 */}
+          <button onClick={() => setActiveTab('report')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'report' ? 'text-blue-600' : 'text-slate-400'}`}>
+            {activeTab === 'report' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-blue-600" />}
+            <BookOpen className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'report' ? 'scale-110' : ''}`}/>
             <span className="text-[10px] font-bold">업무보고</span>
+            {status === 'submitted' && activeTab !== 'report' && <span className="absolute top-1.5 right-3 w-1.5 h-1.5 rounded-full bg-emerald-500" />}
           </button>
-          <button onClick={() => setActiveTab('notice')} className={`flex flex-col items-center p-2 flex-1 relative ${activeTab === 'notice' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+          {/* 공지사항 */}
+          <button onClick={() => setActiveTab('notice')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'notice' ? 'text-blue-600' : 'text-slate-400'}`}>
+            {activeTab === 'notice' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-blue-600" />}
             <div className="relative">
-              <Bell className="w-6 h-6 mb-1"/>
+              <Bell className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'notice' ? 'scale-110' : ''}`}/>
               {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
+                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-black rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 shadow-sm">
                   {notices.filter(n => !readNoticeIds.has(n.id)).length}
                 </span>
               )}
             </div>
             <span className="text-[10px] font-bold">공지사항</span>
           </button>
+          {/* 관리자 (admin 전용) */}
           {role === 'admin' && (
-            <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'admin_console' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
-              <Settings className="w-6 h-6 mb-1"/>
-              <span className="text-[10px] font-bold">관리자</span>
-            </button>
+            <>
+              <button onClick={handleAssociationTab} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'association' ? 'text-indigo-600' : 'text-slate-400'}`}>
+                {activeTab === 'association' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-indigo-600" />}
+                <BookOpen className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'association' ? 'scale-110' : ''}`}/>
+                <span className="text-[10px] font-bold">협회</span>
+              </button>
+              <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'admin_console' ? 'text-purple-600' : 'text-slate-400'}`}>
+                {activeTab === 'admin_console' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-purple-600" />}
+                <Settings className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'admin_console' ? 'scale-110' : ''}`}/>
+                <span className="text-[10px] font-bold">관리자</span>
+              </button>
+            </>
           )}
-          <button onClick={() => { localStorage.removeItem('APP_ROLE'); localStorage.removeItem('APP_PARISH'); localStorage.removeItem('APP_CHURCH'); setRole(null); }} className="flex flex-col items-center p-2 flex-1 text-slate-400 hover:text-red-500">
-            <User className="w-6 h-6 mb-1"/>
+          {/* 모드변경 */}
+          <button onClick={() => { localStorage.removeItem('APP_ROLE'); localStorage.removeItem('APP_PARISH'); localStorage.removeItem('APP_CHURCH'); setRole(null); }} className="flex flex-col items-center pt-2 pb-3 flex-1 text-slate-400 hover:text-red-500 transition-colors">
+            <User className="w-5 h-5 mb-0.5"/>
             <span className="text-[10px] font-bold">모드변경</span>
           </button>
         </div>
@@ -4030,7 +4046,29 @@ const renderPreviewLines = () => {
               );
             })()})})()}
             
-            <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+            {/* 빠른 대항목 템플릿 */}
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <p className="text-[10px] text-slate-400 font-semibold mb-2 uppercase tracking-wide">빠른 대항목 추가</p>
+              <div className="flex flex-wrap gap-1.5">
+                {['전주 결과보고', '금주 계획 및 보고', '특별활동', '교육 및 훈련', '봉사 활동', '전도 및 선교', '기타'].map(title => (
+                  <button
+                    key={title}
+                    onClick={() => {
+                      const newItem = { id: nextId, text: title, level: 0, isFixed: false };
+                      const newChild = { id: nextId + 1, text: "", level: 1 };
+                      setNextId(prev => prev + 2);
+                      setReportData(data => [...data, newItem, newChild]);
+                      setTimeout(() => { document.getElementById(`input-${newChild.id}`)?.focus(); }, 10);
+                    }}
+                    className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />{title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
               <button
                 onClick={() => addNewItem(-1, 1)}
                 className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-500 hover:text-blue-600 p-2.5 rounded-lg text-sm font-medium transition-all"
@@ -5411,6 +5449,17 @@ const renderPreviewLines = () => {
 
     </div>
     </div>
+
+    {/* 제출 완료 축하 배너 */}
+    {showSubmitCelebration && (
+      <div className="fixed inset-0 pointer-events-none z-[400] flex items-center justify-center">
+        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-5 rounded-2xl shadow-2xl flex flex-col items-center gap-2 animate-in zoom-in-95 duration-300">
+          <div className="text-4xl">🎉</div>
+          <div className="text-xl font-black">{church} 보고서 제출 완료!</div>
+          <div className="text-sm text-emerald-100">{parish} · {appConfig?.solarDate || ''}</div>
+        </div>
+      </div>
+    )}
 
     {/* API 키 입력 모달 */}
     {showApiKeyModal && (
