@@ -3166,10 +3166,10 @@ const renderPreviewLines = () => {
                   <FileJson className="w-4 h-4" />
                   추출
                 </button>
-                <button 
-                  onClick={resetAllData}
+                <button
+                  onClick={() => { setResetMode('quick'); setResetSelectedParishes([]); setResetSelectedChurches({}); setShowResetModal(true); }}
                   className="flex items-center gap-1.5 text-sm bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
-                  title="모든 교구/교회 데이터 초기화"
+                  title="데이터 초기화 옵션"
                 >
                   <Trash2 className="w-4 h-4" />
                   전체 초기화
