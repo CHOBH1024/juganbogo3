@@ -756,14 +756,31 @@ export default function App() {
     }
   }, [activeTab, parish, church, status, reportData]);
 
+  // 관리자 콘솔 클라우드 강제 새로고침 (supabase에서 최신 데이터 재조회)
+  const refreshFromCloud = useCallback(async () => {
+    const allKeys = Object.entries(PARISH_CHURCH_MAP).flatMap(([p, cs]) =>
+      (cs as string[]).map(c => ({ p, c, key: `report_${p}_${c}` }))
+    );
+    await Promise.all(allKeys.map(async ({ p, c, key }) => {
+      try {
+        const data = await fetchDbData(`${p}_${c}`);
+        if (data) {
+          localStorage.setItem(key, JSON.stringify(data));
+          sessionStorage.setItem(key, JSON.stringify(data));
+        }
+      } catch {}
+    }));
+    loadAllReportsStatus();
+  }, [parish, church, status, reportData, lastSaved]);
+
   // 관리자 콘솔 자동 새로고침
   useEffect(() => {
     if (!adminAutoRefresh || activeTab !== 'admin_console') return;
     const interval = setInterval(() => {
-      loadAllReportsStatus();
+      refreshFromCloud();
     }, 60000); // 60초마다
     return () => clearInterval(interval);
-  }, [adminAutoRefresh, activeTab]);
+  }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const startAdminAiReview = async () => {
     setIsAdminCheckingAI(true);
@@ -4057,6 +4074,29 @@ const renderPreviewLines = () => {
           </div>
           
           <div className="pt-4 border-t border-slate-200 mt-auto shrink-0 space-y-2">
+            {/* 보고서 완성도 */}
+            {(() => {
+              const cleanItems = getCleanData(reportData);
+              const totalItems = cleanItems.length;
+              const l0Count = cleanItems.filter(i => i.level === 1).length; // 대항목 수
+              const filledItems = cleanItems.filter(i => i.text && i.text.trim().length > 2).length;
+              if (totalItems === 0) return null;
+              const pct = Math.round((filledItems / totalItems) * 100);
+              return (
+                <div className="px-1 pb-2">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                    <span className="font-semibold">보고서 완성도</span>
+                    <span className={`font-black ${pct >= 80 ? 'text-emerald-600' : pct >= 50 ? 'text-blue-600' : 'text-slate-400'}`}>{pct}% · {l0Count}개 대항목</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
             <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1 flex-wrap">
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Tab</kbd>들여쓰기</span>
               <span className="text-slate-200">|</span>
@@ -4167,9 +4207,9 @@ const renderPreviewLines = () => {
                 </div>
                 <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                   <button
-                    onClick={() => loadAllReportsStatus()}
+                    onClick={() => refreshFromCloud()}
                     className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                    title="현황 새로고침"
+                    title="클라우드에서 최신 데이터 새로고침"
                   >
                     <RefreshCw className="w-3 h-3" />
                   </button>
