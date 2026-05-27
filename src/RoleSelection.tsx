@@ -6,7 +6,7 @@ export type Role = 'church' | 'manager' | 'admin' | null;
 interface RoleSelectionProps {
   onSelectRole: (role: Role, data?: any) => void;
   parishChurchMap: Record<string, string[]>;
-  appConfig?: { solarDate: string; heavenlyDate: string } | null;
+  appConfig?: { solarDate: string; heavenlyDate: string; deadline?: string } | null;
 }
 
 export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig }: RoleSelectionProps) {
