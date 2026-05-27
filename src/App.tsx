@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -15,7 +15,19 @@ const getLocalServerUrl = () => {
   return 'http://localhost:5000';
 };
 
-// RLS 우회를 위한 Storage 기반 JSON DB 헬퍼 (로컬 및 클라우드 동시 지원)
+// ── 토스트 알림 시스템 ──────────────────────────────────────────
+type ToastType = 'success' | 'error' | 'info' | 'warning';
+interface Toast { id: number; message: string; type: ToastType; }
+let _toastId = 0;
+let _toastDispatch: ((t: Toast) => void) | null = null;
+const toast = {
+  success: (msg: string) => _toastDispatch?.({ id: ++_toastId, message: msg, type: 'success' }),
+  error: (msg: string) => _toastDispatch?.({ id: ++_toastId, message: msg, type: 'error' }),
+  info: (msg: string) => _toastDispatch?.({ id: ++_toastId, message: msg, type: 'info' }),
+  warning: (msg: string) => _toastDispatch?.({ id: ++_toastId, message: msg, type: 'warning' }),
+};
+
+// ── RLS 우회를 위한 Storage 기반 JSON DB 헬퍼 (로컬 및 클라우드 동시 지원)
 const fetchDbData = async (id: string) => {
   const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
   if (isLocal) {
@@ -200,6 +212,16 @@ function buildTree(flatData: ReportItem[]) {
 }
 
 export default function App() {
+
+  // 토스트 알림 상태
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  useEffect(() => {
+    _toastDispatch = (t: Toast) => {
+      setToasts(prev => [...prev.slice(-4), t]);
+      setTimeout(() => setToasts(prev => prev.filter(x => x.id !== t.id)), 3500);
+    };
+    return () => { _toastDispatch = null; };
+  }, []);
 
   const [role, setRole] = useState<Role>(() => (localStorage.getItem('APP_ROLE') as Role) || null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
@@ -426,10 +448,10 @@ export default function App() {
 
       await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
       setNotices(newNotices);
-      alert('공지사항이 등록되었습니다.');
+      toast.success('공지사항이 등록되었습니다.');
     } catch (err) {
       console.error(err);
-      alert('업로드 중 오류가 발생했습니다.');
+      toast.error('업로드 중 오류가 발생했습니다.');
     } finally {
       setIsUploadingNotice(false);
     }
@@ -473,10 +495,10 @@ export default function App() {
         pdfUrl = publicUrlData.publicUrl;
       }
       setNoticePdfUrl(pdfUrl);
-      alert('PDF가 첨부되었습니다.');
+      toast.success('PDF가 첨부되었습니다.');
     } catch (err) {
       console.error(err);
-      alert('PDF 업로드 중 오류가 발생했습니다.');
+      toast.error('PDF 업로드 중 오류가 발생했습니다.');
     } finally {
       setIsUploadingNotice(false);
     }
@@ -504,7 +526,7 @@ export default function App() {
       await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
       
       setNotices(newNotices);
-      alert('공지사항이 성공적으로 등록되었습니다.');
+      toast.success('공지사항이 성공적으로 등록되었습니다.');
       setNoticeTitle('');
       setNoticeCategory('공지');
       setReportData([]);
@@ -512,7 +534,7 @@ export default function App() {
       setActiveTab('notice');
     } catch (e) {
       console.error(e);
-      alert('등록 중 오류가 발생했습니다.');
+      toast.error('등록 중 오류가 발생했습니다.');
     } finally {
       setIsUploadingNotice(false);
     }
@@ -813,7 +835,7 @@ export default function App() {
     setAdminAiCorrections(prev => prev ? prev.filter(c => !appliedKeys.has(`${c.parish}_${c.church}_${c.id}`)) : null);
     
     setAdminCompilationProgress("");
-    alert(`${selected.length}개의 AI 교정 제안이 성공적으로 반영되었습니다!`);
+    toast.success(`${selected.length}개의 AI 교정 제안이 성공적으로 반영되었습니다!`);
     loadAllReportsStatus();
   };
 
@@ -1065,7 +1087,7 @@ export default function App() {
       URL.revokeObjectURL(url);
 
       setAdminCompilationProgress("");
-      alert("종합 주간업무보고 워드 문서 다운로드가 완료되었습니다!");
+      toast.success("종합 주간업무보고 워드 문서 다운로드가 완료되었습니다!");
     } catch(err: any) {
       console.error(err);
       alert(`문서 생성 중 오류 발생: ${err.message}`);
@@ -1214,6 +1236,20 @@ export default function App() {
     };
     loadData();
   }, [parish, church, activeTab, isLocalMode]);
+
+  // Ctrl+S / Cmd+S 저장 단축키
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (activeTab === 'report' || activeTab === 'association') {
+          handleSave(false);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [activeTab, parish, church, reportData, status]);
 
   // 전역 스크린샷/이미지 붙여넣기 (포커스가 INPUT/TEXTAREA 밖일 때)
   useEffect(() => {
@@ -1892,7 +1928,7 @@ export default function App() {
     // 관리자 콘솔 현황도 갱신
     if (activeTab === 'admin_console') loadAllReportsStatus();
     setShowResetModal(false);
-    alert(`${targets.length}개 교회/국의 데이터가 초기화되었습니다.`);
+    toast.success(`${targets.length}개 교회/국의 데이터가 초기화되었습니다.`);
   };
 
   const handleSave = async (isSubmit: boolean = false) => {
@@ -1919,10 +1955,17 @@ export default function App() {
           updated_at: new Date().toISOString()
         });
         setDriveSaveResult(result as any || null);
-        if (result === 'ok') setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        if (result === 'ok') {
+          setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          if (isSubmit) toast.success('✅ 제출이 완료되었습니다!');
+          else toast.success('☁️ 저장되었습니다.');
+        } else if (result === 'skipped') {
+          toast.info('로컬 저장 완료 (Drive 연동 대기 중)');
+        }
       } catch (e) {
         console.error("Manual save failed", e);
         setDriveSaveResult('error');
+        toast.error('저장 중 오류가 발생했습니다.');
       }
     }
     setTimeout(() => setIsSaving(false), 600);
@@ -2804,7 +2847,7 @@ const renderPreviewLines = () => {
       setLastSaved(null);
       setStatus('draft');
       updateParishStats();
-      alert("데이터가 성공적으로 초기화되었습니다.");
+      toast.success("데이터가 성공적으로 초기화되었습니다.");
     }
   };
 
@@ -2892,7 +2935,7 @@ const renderPreviewLines = () => {
       setLastSaved(null);
       setStatus('draft');
       updateParishStats();
-      alert("전 교구 데이터가 성공적으로 초기화되었습니다.");
+      toast.success("전 교구 데이터가 성공적으로 초기화되었습니다.");
     }
   };
 
@@ -2901,6 +2944,7 @@ const renderPreviewLines = () => {
   }
 
   return (
+    <>
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800">
       <div className="flex-1 flex flex-col relative">
         <div className="w-full max-w-full p-2 md:p-4 lg:p-6 mb-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2995,7 +3039,7 @@ const renderPreviewLines = () => {
                       await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
                       setNotices([]);
                       setActiveNotice(null);
-                      alert('모든 공지사항이 초기화되었습니다.');
+                      toast.success('모든 공지사항이 초기화되었습니다.');
                     }
                   }}
                   className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
@@ -3924,7 +3968,7 @@ const renderPreviewLines = () => {
                         } catch(e) {}
 
                         loadAllReportsStatus();
-                        alert("전 교구 및 협회 데이터가 전체 초기화되었습니다.");
+                        toast.success("전 교구 및 협회 데이터가 전체 초기화되었습니다.");
                       }
                     } else if (pwd !== null) {
                       alert("비밀번호가 일치하지 않습니다.");
@@ -5066,5 +5110,33 @@ const renderPreviewLines = () => {
 
     </div>
     </div>
+
+    {/* 토스트 알림 컨테이너 */}
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none md:bottom-6">
+      {toasts.map(t => {
+        const styles: Record<ToastType, string> = {
+          success: 'bg-emerald-600 text-white',
+          error: 'bg-red-600 text-white',
+          info: 'bg-blue-600 text-white',
+          warning: 'bg-amber-500 text-white',
+        };
+        const icons: Record<ToastType, React.ReactNode> = {
+          success: <CheckCircle className="w-4 h-4 shrink-0" />,
+          error: <AlertCircle className="w-4 h-4 shrink-0" />,
+          info: <Info className="w-4 h-4 shrink-0" />,
+          warning: <AlertTriangle className="w-4 h-4 shrink-0" />,
+        };
+        return (
+          <div
+            key={t.id}
+            className={`${styles[t.type]} px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-sm font-medium max-w-xs text-center animate-in fade-in slide-in-from-bottom-3 duration-300 pointer-events-auto`}
+          >
+            {icons[t.type]}
+            <span>{t.message}</span>
+          </div>
+        );
+      })}
+    </div>
+    </>
   );
 }
