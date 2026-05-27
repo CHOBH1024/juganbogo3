@@ -1364,13 +1364,20 @@ export default function App() {
     loadData();
   }, [parish, church, activeTab, isLocalMode]);
 
-  // Ctrl+S / Cmd+S 저장 단축키
+  // Ctrl+S / Cmd+S 저장 단축키, Ctrl+Enter 제출 확정
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         if (activeTab === 'report' || activeTab === 'association') {
           handleSave(false);
+        }
+      }
+      // Ctrl+Enter: 제출 확정 (미제출 상태일 때만)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if ((activeTab === 'report' || activeTab === 'association') && status !== 'submitted') {
+          e.preventDefault();
+          handleSave(true);
         }
       }
     };
@@ -4219,16 +4226,16 @@ const renderPreviewLines = () => {
                 </div>
               );
             })()}
-            <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1 flex-wrap">
+            <div className="flex items-center justify-center gap-2 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1 flex-wrap">
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Tab</kbd>들여쓰기</span>
               <span className="text-slate-200">|</span>
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Shift+Tab</kbd>내어쓰기</span>
               <span className="text-slate-200">|</span>
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Enter</kbd>항목 추가</span>
               <span className="text-slate-200">|</span>
-              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">↑/↓</kbd>이동</span>
-              <span className="text-slate-200">|</span>
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Ctrl+S</kbd>저장</span>
+              <span className="text-slate-200">|</span>
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Ctrl+↵</kbd>제출</span>
             </div>
             <div className="flex items-center justify-between px-1 pb-1">
               <div className="flex flex-col gap-0.5">
@@ -4379,11 +4386,30 @@ const renderPreviewLines = () => {
                     <div className="w-full bg-white/60 rounded-full h-2 overflow-hidden mb-2">
                       <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="flex gap-3 text-[10px] font-semibold">
+                    <div className="flex gap-3 text-[10px] font-semibold items-center">
                       <span className="text-emerald-600">✅ 제출 {totalSubmitted}</span>
                       <span className="text-blue-600">📝 작성중 {totalDraft}</span>
                       <span className="text-slate-400">⬜ 미작성 {totalEmpty}</span>
-                      <span className="text-slate-500 ml-auto">합계 {allChurches.length}개 교회</span>
+                      <span className="text-slate-500">합계 {allChurches.length}개</span>
+                      <button
+                        onClick={() => {
+                          const lines = [`[${appConfig?.solarDate || '이번 주'} 전국 교구 제출현황]`, `제출률: ${pct}% (${totalSubmitted}/${allChurches.length}개)`, ''];
+                          Object.entries(PARISH_CHURCH_MAP)
+                            .filter(([p]) => p !== '협회')
+                            .forEach(([p, cs]) => {
+                              const tcs = (cs as string[]).slice(1);
+                              const submitted = tcs.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                              const notSubmitted = tcs.filter(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted');
+                              lines.push(`• ${getDisplayParish(p)}: ${submitted}/${tcs.length}${notSubmitted.length > 0 ? ` (미제출: ${notSubmitted.map(c => getDisplayChurch(c)).join(', ')})` : ' ✅'}`);
+                            });
+                          navigator.clipboard.writeText(lines.join('\n'));
+                          toast.success('전국 현황 요약이 복사되었습니다.');
+                        }}
+                        className="ml-auto flex items-center gap-1 px-2 py-1 bg-white/60 hover:bg-white border border-purple-200 text-purple-700 rounded-md text-[10px] font-bold transition-colors"
+                        title="전국 현황 요약 텍스트 복사"
+                      >
+                        <Copy className="w-2.5 h-2.5" /> 현황 복사
+                      </button>
                     </div>
                   </div>
                 );
