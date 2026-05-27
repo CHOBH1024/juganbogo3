@@ -368,6 +368,21 @@ export default function App() {
   const [passwordModalCallback, setPasswordModalCallback] = useState<((pwd: string) => boolean) | null>(null);
   const [passwordModalOnSuccess, setPasswordModalOnSuccess] = useState<((pwd: string) => void) | null>(null);
 
+  // API 키 입력 모달 (텍스트 입력, 비밀번호 X)
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyModalTitle, setApiKeyModalTitle] = useState('');
+  const [apiKeyModalDesc, setApiKeyModalDesc] = useState('');
+  const [apiKeyModalInput, setApiKeyModalInput] = useState('');
+  const [apiKeyModalOnSuccess, setApiKeyModalOnSuccess] = useState<((key: string) => void) | null>(null);
+
+  const openApiKeyModal = (title: string, desc: string, defaultValue: string, onSuccess: (key: string) => void) => {
+    setApiKeyModalTitle(title);
+    setApiKeyModalDesc(desc);
+    setApiKeyModalInput(defaultValue);
+    setApiKeyModalOnSuccess(() => onSuccess);
+    setShowApiKeyModal(true);
+  };
+
   const openPasswordModal = (title: string, checkFn: (pwd: string) => boolean, onSuccess: (pwd: string) => void) => {
     setPasswordModalTitle(title);
     setPasswordModalInput('');
@@ -2333,14 +2348,18 @@ export default function App() {
         } catch (e: any) {
           console.warn("Gemini REST API failed", e);
           if (e.message === "RATE_LIMIT") {
-              const newKey = prompt("기본 제공된 구글 AI 키의 사용량이 초과되었습니다 (오류 429).\n본인의 구글 AI Studio API 키를 입력해주시면 계속 사용 가능합니다.\n취소하시면 우회 채널(OpenRouter)로 재시도합니다.");
-              if (newKey) {
+              openApiKeyModal(
+                'Gemini API 키 입력',
+                '기본 제공 키 사용량이 초과되었습니다 (429). 본인의 Google AI Studio API 키를 입력하시면 계속 사용하실 수 있습니다.',
+                localStorage.getItem('GEMINI_KEY') || '',
+                (newKey) => {
                   localStorage.setItem('GEMINI_KEY', newKey);
-                  alert("키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.");
+                  toast.success('Gemini API 키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.');
                   setShowAiModal(false);
                   setIsCheckingAI(false);
-                  return;
-              }
+                }
+              );
+              return;
           }
         }
 
@@ -2348,11 +2367,19 @@ export default function App() {
         if (!text) {
           let openRouterKey = localStorage.getItem('OPENROUTER_KEY');
           if (!openRouterKey) {
-            const inputKey = prompt("Gemini에 연결할 수 없습니다.\n오픈라우터(OpenRouter) API 키를 입력하시면 무료 모델로 우회합니다.");
-            if (inputKey) {
-              localStorage.setItem('OPENROUTER_KEY', inputKey);
-              openRouterKey = inputKey;
-            }
+            // openApiKeyModal은 동기적으로 처리 불가하므로 모달을 열고 return
+            openApiKeyModal(
+              'OpenRouter API 키 입력',
+              'Gemini에 연결할 수 없습니다. OpenRouter API 키를 입력하시면 무료 모델로 우회 검토합니다.',
+              '',
+              (inputKey) => {
+                localStorage.setItem('OPENROUTER_KEY', inputKey);
+                toast.info('OpenRouter 키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.');
+                setShowAiModal(false);
+                setIsCheckingAI(false);
+              }
+            );
+            return;
           }
 
           if (openRouterKey) {
@@ -5032,7 +5059,7 @@ const renderPreviewLines = () => {
 
                   {/* 현재 교회 */}
                   <button
-                    onClick={() => { if(window.confirm(`"${church}" 교회 데이터를 초기화하시겠습니까?`)) executeReset([{parish, church}], false); }}
+                    onClick={() => { executeReset([{parish, church}], false); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-300 hover:bg-red-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
@@ -5046,7 +5073,7 @@ const renderPreviewLines = () => {
 
                   {/* 현재 교구 전체 */}
                   <button
-                    onClick={() => { const targets = PARISH_CHURCH_MAP[parish].map(c => ({parish, church: c})); if(window.confirm(`"${parish}" 교구 전체(${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                    onClick={() => { const targets = PARISH_CHURCH_MAP[parish].map(c => ({parish, church: c})); executeReset(targets, true); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-orange-300 hover:bg-orange-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-orange-100 flex items-center justify-center shrink-0">
@@ -5061,7 +5088,7 @@ const renderPreviewLines = () => {
                   {/* 협회 전체 */}
                   {activeTab === 'association' || parish === '협회' ? (
                     <button
-                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); if(window.confirm(`협회 전체(${targets.length}개 국)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); executeReset(targets, true); }}
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
                     >
                       <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
@@ -5074,7 +5101,7 @@ const renderPreviewLines = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); if(window.confirm(`모든 교구(협회 제외, ${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); executeReset(targets, true); }}
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
                     >
                       <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
@@ -5089,7 +5116,7 @@ const renderPreviewLines = () => {
 
                   {/* 교구+협회 전체 */}
                   <button
-                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); if(window.confirm(`정말로 교구+협회 전체(${targets.length}개)를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) executeReset(targets, true); }}
+                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); executeReset(targets, true); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-400 hover:bg-red-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
@@ -5168,11 +5195,8 @@ const renderPreviewLines = () => {
                     disabled={Object.values(resetSelectedChurches).flat().length === 0}
                     onClick={() => {
                       const targets = Object.entries(resetSelectedChurches).flatMap(([p, cs]) => (cs as string[]).map(c => ({parish: p, church: c})));
-                      const totalAll = Object.values(PARISH_CHURCH_MAP).flat().length;
                       const requirePwd = targets.length > 1;
-                      if(window.confirm(`선택한 ${targets.length}개 교회/국의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
-                        executeReset(targets, requirePwd);
-                      }
+                      executeReset(targets, requirePwd);
                     }}
                     className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-bold transition-colors flex items-center gap-1.5"
                   >
@@ -5187,6 +5211,38 @@ const renderPreviewLines = () => {
 
     </div>
     </div>
+
+    {/* API 키 입력 모달 */}
+    {showApiKeyModal && (
+      <div className="fixed inset-0 bg-black/60 z-[350] flex items-center justify-center p-4" onClick={() => setShowApiKeyModal(false)}>
+        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-gradient-to-br from-violet-600 to-indigo-700 p-4 text-white flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg"><Key className="w-4 h-4" /></div>
+            <h2 className="font-black text-base">{apiKeyModalTitle}</h2>
+          </div>
+          <div className="p-4 space-y-3">
+            {apiKeyModalDesc && <p className="text-xs text-slate-600 leading-relaxed bg-violet-50 border border-violet-100 rounded-xl p-3">{apiKeyModalDesc}</p>}
+            <input
+              type="text"
+              placeholder="API 키 입력"
+              autoFocus
+              className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-violet-300 focus:border-violet-400 outline-none font-mono"
+              value={apiKeyModalInput}
+              onChange={e => setApiKeyModalInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && apiKeyModalInput.trim()) { setShowApiKeyModal(false); apiKeyModalOnSuccess?.(apiKeyModalInput.trim()); } }}
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setShowApiKeyModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors">취소</button>
+              <button
+                onClick={() => { if (apiKeyModalInput.trim()) { setShowApiKeyModal(false); apiKeyModalOnSuccess?.(apiKeyModalInput.trim()); } }}
+                disabled={!apiKeyModalInput.trim()}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-black transition-colors"
+              >저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* 범용 비밀번호 모달 */}
     {showPasswordModal && (
