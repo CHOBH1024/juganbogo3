@@ -309,10 +309,22 @@ export default function App() {
     }
   };
   const [notices, setNotices] = useState<any[]>([]);
+  const [readNoticeIds, setReadNoticeIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('read_notice_ids') || '[]')); } catch { return new Set(); }
+  });
   const [isAdmin, setIsAdmin] = useState(false);
   const [isDownloadUnlocked, setIsDownloadUnlocked] = useState(() => sessionStorage.getItem('download_unlocked') === '1');
   const [activeNotice, setActiveNotice] = useState<any | null>(null);
   const [isUploadingNotice, setIsUploadingNotice] = useState(false);
+
+  const markNoticeRead = (id: string) => {
+    setReadNoticeIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      localStorage.setItem('read_notice_ids', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // 관리자 통합 취합 콘솔용 상태
   const [isAdminCheckingAI, setIsAdminCheckingAI] = useState(false);
@@ -2956,7 +2968,14 @@ const renderPreviewLines = () => {
                <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지 작성</button>
              </>
            )}
-           <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+           <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base relative ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}>
+             <Bell className="w-4 h-4"/> 공지사항 확인
+             {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
+               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
+                 {notices.filter(n => !readNoticeIds.has(n.id)).length}
+               </span>
+             )}
+           </button>
            {role === 'admin' && (
             <button 
               onClick={() => setActiveTab('admin_console')} 
@@ -2973,8 +2992,15 @@ const renderPreviewLines = () => {
             <BookOpen className="w-6 h-6 mb-1"/>
             <span className="text-[10px] font-bold">업무보고</span>
           </button>
-          <button onClick={() => setActiveTab('notice')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'notice' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
-            <Bell className="w-6 h-6 mb-1"/>
+          <button onClick={() => setActiveTab('notice')} className={`flex flex-col items-center p-2 flex-1 relative ${activeTab === 'notice' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+            <div className="relative">
+              <Bell className="w-6 h-6 mb-1"/>
+              {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
+                  {notices.filter(n => !readNoticeIds.has(n.id)).length}
+                </span>
+              )}
+            </div>
             <span className="text-[10px] font-bold">공지사항</span>
           </button>
           {role === 'admin' && (
@@ -3027,9 +3053,25 @@ const renderPreviewLines = () => {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Bell className="w-6 h-6 text-blue-500"/> 공지사항</h1>
-              <p className="text-sm text-slate-400 mt-0.5">총 {notices.length}개의 공지</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                총 {notices.length}개의 공지
+                {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
+                  <span className="ml-2 text-red-500 font-bold">{notices.filter(n => !readNoticeIds.has(n.id)).length}개 미확인</span>
+                )}
+              </p>
             </div>
             <div className="flex gap-2 items-center">
+              {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
+                <button
+                  onClick={() => {
+                    const allIds = notices.map(n => n.id);
+                    const newSet = new Set([...readNoticeIds, ...allIds]);
+                    setReadNoticeIds(newSet);
+                    localStorage.setItem('read_notice_ids', JSON.stringify([...newSet]));
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
+                >모두 읽음</button>
+              )}
               {!isAdmin ? (
                 <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
               ) : (
@@ -3065,11 +3107,12 @@ const renderPreviewLines = () => {
                 const excerpt = notice.data?.filter((i: any) => i.text?.trim()).map((i: any) => i.text).join(' ').slice(0, 120) || '';
                 const catColor: Record<string, string> = { '공지': 'bg-blue-100 text-blue-700', '행사': 'bg-emerald-100 text-emerald-700', '긴급': 'bg-red-100 text-red-700', '안내': 'bg-amber-100 text-amber-700' };
                 const cat = notice.category || '공지';
+                const isUnread = !readNoticeIds.has(notice.id);
                 return (
                   <div
                     key={notice.id}
-                    onClick={() => setActiveNotice(notice)}
-                    className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg hover:border-blue-200 cursor-pointer group transition-all duration-200"
+                    onClick={() => { setActiveNotice(notice); markNoticeRead(notice.id); }}
+                    className={`bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer group transition-all duration-200 hover:shadow-lg ${isUnread ? 'border-2 border-blue-400 ring-1 ring-blue-200' : 'border border-slate-200 hover:border-blue-200'}`}
                   >
                     {/* Thumbnail */}
                     <div className="h-44 overflow-hidden relative">
@@ -3084,8 +3127,9 @@ const renderPreviewLines = () => {
                           <Bell className="w-12 h-12 text-white/60" />
                         </div>
                       )}
-                      <div className="absolute top-3 left-3">
+                      <div className="absolute top-3 left-3 flex items-center gap-1.5">
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${catColor[cat] || 'bg-slate-100 text-slate-600'}`}>{cat}</span>
+                        {isUnread && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white animate-pulse">NEW</span>}
                       </div>
                       {isAdmin && (
                         <button
@@ -3097,7 +3141,7 @@ const renderPreviewLines = () => {
                     {/* Card body */}
                     <div className="p-4">
                       <p className="text-[11px] text-slate-400 mb-1.5">{new Date(notice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                      <h3 className="font-bold text-slate-800 text-base leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">{notice.title}</h3>
+                      <h3 className={`font-bold text-base leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2 ${isUnread ? 'text-slate-900' : 'text-slate-700'}`}>{notice.title}</h3>
                       {excerpt && <p className="text-xs text-slate-500 leading-relaxed line-clamp-3">{excerpt}</p>}
                     </div>
                   </div>
