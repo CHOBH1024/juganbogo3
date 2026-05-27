@@ -251,6 +251,7 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
+  const docUploadRef = useRef<HTMLInputElement>(null);
 
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
@@ -991,7 +992,7 @@ export default function App() {
                   imageBuffer = await res.arrayBuffer();
                 } else {
                   const base64Data = item.image.split(",")[1];
-                  imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0));
+                  imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0)).buffer;
                 }
                 
                 const targetWidth = 500;
@@ -1205,6 +1206,34 @@ export default function App() {
     loadData();
   }, [parish, church, activeTab, isLocalMode]);
 
+  // 전역 스크린샷/이미지 붙여넣기 (포커스가 INPUT/TEXTAREA 밖일 때)
+  useEffect(() => {
+    const onGlobalPaste = (e: ClipboardEvent) => {
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
+      const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
+      const imageItem = items.find(i => i.type.startsWith('image/'));
+      if (!imageItem) return;
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const newId = Date.now();
+          setReportData(prev => [...prev, { id: newId, text: '(붙여넣기 이미지)', level: 1, image: dataUrl, imageWidth: img.width, imageHeight: img.height, chartType: 'none' as const }]);
+          setNextId(newId + 1);
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    };
+    document.addEventListener('paste', onGlobalPaste);
+    return () => document.removeEventListener('paste', onGlobalPaste);
+  }, []);
+
   // Silent auto-save on data change
   useEffect(() => {
     if (activeTab === 'notice_write' || activeTab === 'notice') return;
@@ -1381,7 +1410,7 @@ export default function App() {
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, id: number) => {
     // 이미지 붙여넣기 (클립보드에서 직접 Ctrl+V)
-    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
+    const imageItem = Array.from(e.clipboardData.items as unknown as DataTransferItem[]).find(item => item.type.startsWith('image/'));
     if (imageItem) {
       e.preventDefault();
       const file = imageItem.getAsFile();
@@ -1734,6 +1763,83 @@ export default function App() {
       return 'ring-2 ring-inset ring-blue-500 bg-blue-50/50';
     }
     return '';
+  };
+
+  // .docx / .hwpx 파일 가져오기
+  const importDocumentFile = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const newItems: ReportItem[] = [];
+
+    try {
+      if (ext === 'docx') {
+        // mammoth 동적 import (번들 크기 절약)
+        const mammoth = await import('mammoth');
+        const arrayBuffer = await file.arrayBuffer();
+        const imageData: Record<string, string> = {};
+        const result = await mammoth.convertToHtml({ arrayBuffer }, {
+          convertImage: mammoth.images.imgElement(async (image) => {
+            const b64 = await image.read('base64');
+            const dataUrl = `data:${image.contentType};base64,${b64}`;
+            const key = `img_${Object.keys(imageData).length}`;
+            imageData[key] = dataUrl;
+            return { src: key };
+          })
+        });
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(result.value, 'text/html');
+        let idCounter = Date.now();
+        doc.body.childNodes.forEach((node) => {
+          const el = node as HTMLElement;
+          if (el.tagName === 'TABLE') {
+            const rows: string[][] = [];
+            el.querySelectorAll('tr').forEach(tr => {
+              const cells: string[] = [];
+              tr.querySelectorAll('td,th').forEach(td => cells.push(td.textContent?.trim() || ''));
+              if (cells.length) rows.push(cells);
+            });
+            if (rows.length) newItems.push({ id: idCounter++, text: '', level: 2, tableData: rows, tableSpans: rows.map(r => r.map(() => ({ colSpan: 1, rowSpan: 1, merged: false }))), tableHighlights: rows.map(r => r.map(() => false)), chartType: 'none' as const });
+          } else if (el.tagName?.match(/^H[1-6]$/)) {
+            const level = Math.min(parseInt(el.tagName[1]) - 1, 2);
+            newItems.push({ id: idCounter++, text: el.textContent?.trim() || '', level, chartType: 'none' as const });
+          } else {
+            const imgEl = el.querySelector?.('img');
+            if (imgEl && imageData[imgEl.getAttribute('src') || '']) {
+              const src = imgEl.getAttribute('src') || '';
+              const dataUrl = imageData[src];
+              const img = new Image();
+              img.src = dataUrl;
+              newItems.push({ id: idCounter++, text: '', level: 2, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300, chartType: 'none' as const });
+            } else {
+              const text = el.textContent?.trim();
+              if (text) newItems.push({ id: idCounter++, text, level: 2, chartType: 'none' as const });
+            }
+          }
+        });
+      } else if (ext === 'hwpx') {
+        // JSZip으로 XML 파싱
+        const JSZip = (await import('https://cdn.skypack.dev/jszip' as any)).default;
+        const zip = await JSZip.loadAsync(file);
+        const sectionFile = Object.keys(zip.files).find(n => n.includes('section') && n.endsWith('.xml'));
+        if (sectionFile) {
+          const xml = await zip.files[sectionFile].async('text');
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xml, 'application/xml');
+          let idCounter = Date.now();
+          xmlDoc.querySelectorAll('p').forEach((p: Element) => {
+            const text = p.textContent?.trim();
+            if (text) newItems.push({ id: idCounter++, text, level: 2, chartType: 'none' as const });
+          });
+        }
+      }
+
+      if (!newItems.length) { alert('가져올 내용이 없습니다.'); return; }
+      const append = reportData.length > 1 && window.confirm(`기존 내용(${reportData.length}개 항목)에 이어서 추가할까요?\n아니오(취소)를 누르면 기존 내용을 대체합니다.`);
+      setReportData(append ? [...reportData, ...newItems] : newItems);
+      setNextId(Math.max(...newItems.map(i => i.id)) + 1);
+    } catch (err) {
+      console.error('문서 가져오기 실패:', err);
+      alert('문서를 가져오는 중 오류가 발생했습니다.\n지원 형식: .docx, .hwpx');
+    }
   };
 
   const handleReset = () => {
@@ -2370,7 +2476,7 @@ export default function App() {
               imageBuffer = await res.arrayBuffer();
             } else {
               const base64Data = item.image.split(",")[1];
-              imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0));
+              imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0)).buffer;
             }
             
             const targetWidth = 500;
@@ -3593,6 +3699,13 @@ const renderPreviewLines = () => {
               >
                 <Upload className="w-4 h-4" /> 문서
               </button>
+              <input
+                ref={docUploadRef}
+                type="file"
+                accept=".docx,.hwpx"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) { importDocumentFile(f); e.target.value = ''; } }}
+              />
             </div>
           </div>
           
