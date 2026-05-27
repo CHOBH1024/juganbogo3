@@ -290,6 +290,10 @@ export default function App() {
   const [driveStatusLoading, setDriveStatusLoading] = useState(false);
   const [showAiStudioGuide, setShowAiStudioGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetSelectedParishes, setResetSelectedParishes] = useState<string[]>([]);
+  const [resetSelectedChurches, setResetSelectedChurches] = useState<Record<string, string[]>>({});
+  const [resetMode, setResetMode] = useState<'quick' | 'custom'>('quick');
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1700,13 +1704,39 @@ export default function App() {
   };
 
   const handleReset = () => {
-    if (window.confirm("현재 작성된 내용이 모두 삭제되고 초기화됩니다. 계속하시겠습니까?")) {
+    setResetMode('quick');
+    setResetSelectedParishes([]);
+    setResetSelectedChurches({});
+    setShowResetModal(true);
+  };
+
+  const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean) => {
+    if (requirePassword) {
+      const pwd = prompt("초기화 비밀번호를 입력하세요:");
+      if (pwd !== "skmt0909!") {
+        if (pwd !== null) alert("비밀번호가 일치하지 않습니다.");
+        return;
+      }
+    }
+    const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+    for (const { parish: p, church: c } of targets) {
+      const key = `report_${p}_${c}`;
+      localStorage.setItem(key, JSON.stringify(defaultData));
+      if (supabase) {
+        try {
+          await supabase.storage.from('images').upload(`db_reports/${key}.json`, JSON.stringify(defaultData), { upsert: true, contentType: 'application/json' });
+        } catch (e) { console.error(e); }
+      }
+    }
+    const isCurrentIncluded = targets.some(t => t.parish === parish && t.church === church);
+    if (isCurrentIncluded) {
       setReportData(DEFAULT_REPORT);
       setLastSaved(null);
       setStatus('draft');
-      const key = `report_${parish}_${church}`;
-      localStorage.removeItem(key);
     }
+    updateParishStats();
+    setShowResetModal(false);
+    alert(`${targets.length}개 교회/국의 데이터가 초기화되었습니다.`);
   };
 
   const handleSave = async (isSubmit: boolean = false) => {
