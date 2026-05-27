@@ -4074,6 +4074,29 @@ const renderPreviewLines = () => {
           </div>
           
           <div className="pt-4 border-t border-slate-200 mt-auto shrink-0 space-y-2">
+            {/* 보고서 완성도 */}
+            {(() => {
+              const cleanItems = getCleanData(reportData);
+              const totalItems = cleanItems.length;
+              const l0Count = cleanItems.filter(i => i.level === 1).length; // 대항목 수
+              const filledItems = cleanItems.filter(i => i.text && i.text.trim().length > 2).length;
+              if (totalItems === 0) return null;
+              const pct = Math.round((filledItems / totalItems) * 100);
+              return (
+                <div className="px-1 pb-2">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                    <span className="font-semibold">보고서 완성도</span>
+                    <span className={`font-black ${pct >= 80 ? 'text-emerald-600' : pct >= 50 ? 'text-blue-600' : 'text-slate-400'}`}>{pct}% · {l0Count}개 대항목</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
             <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1 flex-wrap">
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Tab</kbd>들여쓰기</span>
               <span className="text-slate-200">|</span>
