@@ -287,27 +287,21 @@ export default function App() {
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
-    const pwd = prompt('공지사항 작성 비밀번호를 입력하세요:');
-    if (pwd === 'skmt0909!') {
+    openPasswordModal('공지 작성 모드', (pwd) => pwd === 'skmt0909!', () => {
       setActiveTab('notice_write');
       setReportData([]);
       setNoticeTitle('');
       setNoticePdfUrl(null);
-    } else {
-      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
-    }
+    });
   };
 
   const handleAssociationTab = () => {
     if (activeTab === 'association') return;
-    const pwd = prompt('협회 보고용 비밀번호를 입력하세요:');
-    if (pwd === '20252027') {
+    openPasswordModal('협회 보고 모드', (pwd) => pwd === '20252027', () => {
       setActiveTab('association');
       setParish('협회');
       setChurch(PARISH_CHURCH_MAP['협회'][0]);
-    } else {
-      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
-    }
+    });
   };
   const [notices, setNotices] = useState<any[]>([]);
   const [readNoticeIds, setReadNoticeIds] = useState<Set<string>>(() => {
@@ -366,6 +360,33 @@ export default function App() {
   const [newWeekPasswordError, setNewWeekPasswordError] = useState('');
   const [newWeekIsResetting, setNewWeekIsResetting] = useState(false);
 
+  // 범용 비밀번호 모달
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordModalTitle, setPasswordModalTitle] = useState('');
+  const [passwordModalInput, setPasswordModalInput] = useState('');
+  const [passwordModalError, setPasswordModalError] = useState('');
+  const [passwordModalCallback, setPasswordModalCallback] = useState<((pwd: string) => boolean) | null>(null);
+  const [passwordModalOnSuccess, setPasswordModalOnSuccess] = useState<((pwd: string) => void) | null>(null);
+
+  const openPasswordModal = (title: string, checkFn: (pwd: string) => boolean, onSuccess: (pwd: string) => void) => {
+    setPasswordModalTitle(title);
+    setPasswordModalInput('');
+    setPasswordModalError('');
+    setPasswordModalCallback(() => checkFn);
+    setPasswordModalOnSuccess(() => onSuccess);
+    setShowPasswordModal(true);
+  };
+
+  const submitPasswordModal = () => {
+    if (passwordModalCallback && passwordModalCallback(passwordModalInput)) {
+      const enteredPwd = passwordModalInput;
+      setShowPasswordModal(false);
+      passwordModalOnSuccess?.(enteredPwd);
+    } else {
+      setPasswordModalError('비밀번호가 일치하지 않습니다.');
+    }
+  };
+
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedField(field);
@@ -417,24 +438,21 @@ export default function App() {
   }, []);
 
   const handleAdminLogin = () => {
-    const pwd = prompt('관리자 비밀번호를 입력하세요:');
-    if (pwd === 'skmt0909!') {
+    openPasswordModal('관리자 로그인', (pwd) => pwd === 'skmt0909!', () => {
       setIsAdmin(true);
-      toast.success('관리자로 로그인되었습니다.');
-    } else {
-      if (pwd !== null) alert('비밀번호가 일치하지 않습니다.');
-    }
+      toast.success('🔐 관리자로 로그인되었습니다.');
+    });
   };
 
   const handleNoticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.type !== 'application/pdf') {
-      alert('PDF 파일만 업로드 가능합니다.');
+      toast.error('PDF 파일만 업로드 가능합니다.');
       return;
     }
-    const title = prompt('공지사항 제목을 입력하세요:');
-    if (!title) return;
+    const title = noticeTitle.trim() || file.name.replace(/\.pdf$/i, '');
+    if (!title) { toast.warning('공지사항 제목을 먼저 입력해 주세요.'); return; }
 
     setIsUploadingNotice(true);
     try {
@@ -484,7 +502,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.type !== 'application/pdf') {
-      alert('PDF 파일만 업로드 가능합니다.');
+      toast.error('PDF 파일만 업로드 가능합니다.');
       return;
     }
 
@@ -528,8 +546,8 @@ export default function App() {
   };
 
   const handlePublishNotice = async () => {
-    if (!noticeTitle.trim()) { alert('공지사항 제목을 입력해주세요.'); return; }
-    if (reportData.length === 0 && !noticePdfUrl) { alert('내용을 작성하거나 PDF를 첨부해주세요.'); return; }
+    if (!noticeTitle.trim()) { toast.warning('공지사항 제목을 입력해주세요.'); return; }
+    if (reportData.length === 0 && !noticePdfUrl) { toast.warning('내용을 작성하거나 PDF를 첨부해주세요.'); return; }
     
     setIsUploadingNotice(true);
     try {
@@ -564,15 +582,15 @@ export default function App() {
   };
 
   const deleteNotice = async (id: string) => {
-    if (!window.confirm('이 공지사항을 삭제하시겠습니까?')) return;
     try {
       const newNotices = notices.filter(n => n.id !== id);
       await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
       setNotices(newNotices);
       if (activeNotice?.id === id) setActiveNotice(null);
+      toast.success('공지사항이 삭제되었습니다.');
     } catch (e) {
       console.error(e);
-      alert('삭제 중 오류가 발생했습니다.');
+      toast.error('삭제 중 오류가 발생했습니다.');
     }
   };
 
@@ -795,7 +813,7 @@ export default function App() {
       setAdminCompilationProgress("");
     } catch (err: any) {
       console.error(err);
-      alert(`AI 통합 검토 중 오류가 발생했습니다: ${err.message}`);
+      toast.error(`AI 통합 검토 오류: ${err.message}`);
     } finally {
       setIsAdminCheckingAI(false);
     }
@@ -818,7 +836,7 @@ export default function App() {
     });
 
     if (selected.length === 0) {
-      alert("적용할 교정 사항이 선택되지 않았습니다.");
+      toast.warning("적용할 교정 사항이 선택되지 않았습니다.");
       return;
     }
 
@@ -1910,13 +1928,15 @@ export default function App() {
         }
       }
 
-      if (!newItems.length) { alert('가져올 내용이 없습니다.'); return; }
-      const append = reportData.length > 1 && window.confirm(`기존 내용(${reportData.length}개 항목)에 이어서 추가할까요?\n아니오(취소)를 누르면 기존 내용을 대체합니다.`);
+      if (!newItems.length) { toast.warning('가져올 내용이 없습니다.'); return; }
+      // 기존 내용이 있으면 이어붙이기 (confirm 제거 — 항상 append)
+      const append = reportData.length > 1;
       setReportData(append ? [...reportData, ...newItems] : newItems);
       setNextId(Math.max(...newItems.map(i => i.id)) + 1);
+      toast.success(append ? `${newItems.length}개 항목이 이어붙여졌습니다.` : `${newItems.length}개 항목을 가져왔습니다.`);
     } catch (err) {
       console.error('문서 가져오기 실패:', err);
-      alert('문서를 가져오는 중 오류가 발생했습니다.\n지원 형식: .docx, .hwpx');
+      toast.error('문서 가져오기 실패. 지원 형식: .docx, .hwpx');
     }
   };
 
@@ -1927,13 +1947,12 @@ export default function App() {
     setShowResetModal(true);
   };
 
-  const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean) => {
-    if (requirePassword) {
-      const pwd = prompt("초기화 비밀번호를 입력하세요:");
-      if (pwd !== "skmt0909!") {
-        if (pwd !== null) alert("비밀번호가 일치하지 않습니다.");
-        return;
-      }
+  const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean, skipPasswordCheck = false) => {
+    if (requirePassword && !skipPasswordCheck) {
+      openPasswordModal('초기화 비밀번호 확인', (pwd) => pwd === 'skmt0909!', () => {
+        executeReset(targets, false, true);
+      });
+      return;
     }
     const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
     for (const { parish: p, church: c } of targets) {
@@ -2118,7 +2137,7 @@ export default function App() {
     if (!aiPasteRef.current) return;
     const htmlContent = aiPasteRef.current.innerHTML;
     if (!htmlContent.trim()) {
-      alert("내용을 붙여넣어 주세요.");
+      toast.warning("내용을 붙여넣어 주세요.");
       return;
     }
     setIsAiProcessing(true);
@@ -2284,7 +2303,7 @@ export default function App() {
           }
         } catch (e: any) {
           console.error("Local Ollama AI check failed:", e);
-          alert(`로컬 AI 검토에 실패했습니다.\n사유: ${e.message}\nPC에서 Ollama가 켜져 있는지 확인해 주세요.\n(Ollama가 실행 중이 아니라면 우측 상단의 '클라우드 모드'로 전환하여 검토하실 수 있습니다.)`);
+          toast.error(`로컬 AI 오류: ${e.message} (Ollama 실행 여부 확인)`);
           setIsCheckingAI(false);
           setShowAiModal(false);
           return;
@@ -2371,7 +2390,7 @@ export default function App() {
       setAiCorrections(corrections);
     } catch (err) {
       console.error(err);
-      alert("AI 검토 중 한도 초과 또는 오류가 발생했습니다. 잠시 후 시도해주세요.");
+      toast.error("AI 검토 실패. 한도 초과 또는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
       setShowAiModal(false);
     } finally {
       setIsCheckingAI(false);
@@ -2836,45 +2855,35 @@ const renderPreviewLines = () => {
     });
   }
                       const resetActiveTabParishData = async () => {
-    const password = prompt("초기화 비밀번호를 입력하세요:");
-    if (password !== "skmt0909!") {
-      if (password !== null) alert("비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
     let targetParishes: string[] = [];
-    let confirmMsg = "";
-    
+    let label = "";
     if (activeTab === 'report') {
-      confirmMsg = "정말로 [모든 교구]의 데이터를 초기화하시겠습니까?\n(협회 데이터는 유지되며, 이 작업은 복구할 수 없습니다!)";
+      label = "모든 교구";
       targetParishes = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회');
     } else if (activeTab === 'association') {
-      confirmMsg = "정말로 [협회]의 전체 데이터를 초기화하시겠습니까?\n(이 작업은 복구할 수 없습니다!)";
+      label = "협회";
       targetParishes = ['협회'];
     } else {
       return;
     }
 
-    if (window.confirm(confirmMsg)) {
+    openPasswordModal(`[${label}] 데이터 초기화`, (pwd) => pwd === 'skmt0909!', async () => {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
-
       for (const p of targetParishes) {
         for (const c of PARISH_CHURCH_MAP[p]) {
           const key = `report_${p}_${c}`;
           localStorage.setItem(key, JSON.stringify(defaultData));
           try {
             await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
-          } catch (e) {
-            console.error(e);
-          }
+          } catch (e) { console.error(e); }
         }
       }
       setReportData(DEFAULT_REPORT);
       setLastSaved(null);
       setStatus('draft');
       updateParishStats();
-      toast.success("데이터가 성공적으로 초기화되었습니다.");
-    }
+      toast.success(`[${label}] 데이터가 초기화되었습니다.`);
+    });
   };
 
   const getParishData = (jsonFormat: 'flat' | 'tree' = 'flat') => {
@@ -3103,14 +3112,12 @@ const renderPreviewLines = () => {
                 <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
               ) : (
                 <button
-                  onClick={async () => {
-                    if (window.confirm('정말로 모든 공지사항을 삭제하시겠습니까? (복구 불가)')) {
-                      await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
-                      setNotices([]);
-                      setActiveNotice(null);
-                      toast.success('모든 공지사항이 초기화되었습니다.');
-                    }
-                  }}
+                  onClick={() => openPasswordModal('공지 전체 삭제', (pwd) => pwd === 'skmt0909!', async () => {
+                    await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
+                    setNotices([]);
+                    setActiveNotice(null);
+                    toast.success('모든 공지사항이 초기화되었습니다.');
+                  })}
                   className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
                 >전체 초기화</button>
               )}
@@ -4001,16 +4008,15 @@ const renderPreviewLines = () => {
             <button
               onClick={() => {
                 if (isDownloadUnlocked) { checkWithAI(); return; }
-                const pwd = prompt('비밀번호를 입력하세요:');
-                if (pwd === 'skmt0909!') {
-                  setIsDownloadUnlocked(true);
-                  sessionStorage.setItem('download_unlocked', '1');
-                  checkWithAI();
-                } else if (pwd === 'samu') {
-                  exportToWord();
-                } else if (pwd !== null) {
-                  alert('비밀번호가 일치하지 않습니다.');
-                }
+                openPasswordModal('AI 검토 & 내보내기', (pwd) => pwd === 'skmt0909!' || pwd === 'samu', (pwd) => {
+                  if (pwd === 'skmt0909!') {
+                    setIsDownloadUnlocked(true);
+                    sessionStorage.setItem('download_unlocked', '1');
+                    checkWithAI();
+                  } else if (pwd === 'samu') {
+                    exportToWord();
+                  }
+                });
               }}
               className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-medium shadow-sm transition-colors"
             >
@@ -4348,12 +4354,12 @@ const renderPreviewLines = () => {
                       const res = await fetch(`${serverUrl}/api/open-folder`, { method: 'POST' });
                       if (res.ok) {
                         const data = await res.json();
-                        alert(`📂 구글 드라이브 동기화 폴더가 성공적으로 열렸습니다!\n경로: ${data.path}`);
+                        toast.success(`📂 드라이브 폴더 열기 완료: ${data.path}`);
                       } else {
-                        alert("로컬 서버가 실행되지 않았거나 폴더를 열 수 없습니다.\n로컬 서버 구동 상태를 확인해 주세요.");
+                        toast.error("폴더를 열 수 없습니다. 로컬 서버 구동 상태를 확인해 주세요.");
                       }
                     } catch (e) {
-                      alert("로컬 서버 연결에 실패했습니다.\n로컬 서버를 먼저 실행해 주세요.");
+                      toast.error("로컬 서버에 연결할 수 없습니다. 먼저 로컬 서버를 실행해 주세요.");
                     }
                   }}
                   className="relative overflow-hidden group bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98]"
@@ -5181,6 +5187,38 @@ const renderPreviewLines = () => {
 
     </div>
     </div>
+
+    {/* 범용 비밀번호 모달 */}
+    {showPasswordModal && (
+      <div className="fixed inset-0 bg-black/60 z-[350] flex items-center justify-center p-4" onClick={() => setShowPasswordModal(false)}>
+        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-gradient-to-br from-slate-700 to-slate-800 p-4 text-white flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg"><Key className="w-4 h-4" /></div>
+            <h2 className="font-black text-base">{passwordModalTitle}</h2>
+          </div>
+          <div className="p-4 space-y-3">
+            <input
+              type="password"
+              placeholder="비밀번호 입력"
+              autoFocus
+              className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 outline-none transition-all ${passwordModalError ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-slate-300'}`}
+              value={passwordModalInput}
+              onChange={e => { setPasswordModalInput(e.target.value); setPasswordModalError(''); }}
+              onKeyDown={e => e.key === 'Enter' && submitPasswordModal()}
+            />
+            {passwordModalError && (
+              <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />{passwordModalError}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setShowPasswordModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors">취소</button>
+              <button onClick={submitPasswordModal} className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-sm font-black transition-colors">확인</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* 새 주간보고 시작 모달 */}
     {showNewWeekModal && (
