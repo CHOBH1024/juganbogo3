@@ -430,6 +430,13 @@ export default function App() {
     } catch { return dateStr; }
   };
 
+  const getCurrentWeekSuggestion = (): string => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const weekOfMonth = Math.ceil(now.getDate() / 7);
+    return `${month}월 ${weekOfMonth}주차`;
+  };
+
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedField(field);
@@ -1199,7 +1206,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `전국교구_및_협회_종합_업무보고_${new Date().toISOString().split('T')[0]}.docx`;
+      a.download = `전국교구_및_협회_종합_업무보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -2781,7 +2788,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${getDisplayParish(parish)}_주간보고_${new Date().toISOString().split('T')[0]}.docx`;
+    a.download = `${getDisplayParish(parish)}_주간보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
     a.click();
     URL.revokeObjectURL(url);
     
@@ -3024,7 +3031,7 @@ const renderPreviewLines = () => {
   const resetAllData = async () => {
     // 모달을 열어 사용자가 입력하도록 유도 (prompt/confirm 대신)
     setNewWeekPassword('');
-    setNewWeekSolarDate(appConfig?.solarDate || '');
+    setNewWeekSolarDate(appConfig?.solarDate || getCurrentWeekSuggestion());
     setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
     setNewWeekPasswordError('');
     setShowNewWeekModal(true);
@@ -3076,7 +3083,7 @@ const renderPreviewLines = () => {
   };
 
   if (!role) {
-    return <RoleSelection onSelectRole={handleSelectRole} parishChurchMap={PARISH_CHURCH_MAP} />;
+    return <RoleSelection onSelectRole={handleSelectRole} parishChurchMap={PARISH_CHURCH_MAP} appConfig={appConfig} />;
   }
 
   return (
@@ -3547,7 +3554,7 @@ const renderPreviewLines = () => {
                     {PARISH_CHURCH_MAP[parish].map(c => {
                       const stat = parishStats[c] || 'empty';
                       let textColor = '';
-                      
+
                       if (stat === 'submitted') {
                         textColor = 'text-slate-700 font-bold';
                       } else if (stat === 'draft') {
@@ -3555,9 +3562,9 @@ const renderPreviewLines = () => {
                       } else {
                         textColor = 'text-slate-400';
                       }
-                      
+
                       return (
-                        <div 
+                        <div
                           key={c}
                           className={`flex items-center gap-1.5 px-2 py-1 rounded-md border cursor-pointer hover:shadow-sm transition-all ${c === church ? 'ring-2 ring-blue-500 bg-white border-transparent' : 'bg-white border-slate-200'}`}
                           onClick={() => handleChurchChange(c)}
@@ -3568,6 +3575,28 @@ const renderPreviewLines = () => {
                       );
                     })}
                   </div>
+                  {/* 미제출 알림 문자 복사 */}
+                  {(() => {
+                    const notSubmitted = PARISH_CHURCH_MAP[parish].filter(c => parishStats[c] !== 'submitted');
+                    if (notSubmitted.length === 0) return (
+                      <div className="mt-2 text-xs text-emerald-600 font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5" /> 모든 교회 제출 완료! 🎉
+                      </div>
+                    );
+                    return (
+                      <button
+                        onClick={() => {
+                          const dateStr = appConfig?.solarDate || '이번 주';
+                          const msg = `[${parish} 주간보고 알림]\n${dateStr} 주간보고 미제출 교회입니다.\n미제출: ${notSubmitted.join(', ')}\n빠른 제출 부탁드립니다.`;
+                          navigator.clipboard.writeText(msg);
+                          toast.success('미제출 알림 문자가 복사되었습니다.');
+                        }}
+                        className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> 미제출({notSubmitted.length}개) 알림 문자 복사
+                      </button>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -4261,7 +4290,7 @@ const renderPreviewLines = () => {
                   <button
                     onClick={() => {
                       setNewWeekPassword('');
-                      setNewWeekSolarDate(appConfig?.solarDate || '');
+                      setNewWeekSolarDate(appConfig?.solarDate || getCurrentWeekSuggestion());
                       setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
                       setNewWeekPasswordError('');
                       setShowNewWeekModal(true);
