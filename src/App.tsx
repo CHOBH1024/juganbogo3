@@ -284,6 +284,8 @@ export default function App() {
   const [noticeCategory, setNoticeCategory] = useState('공지');
   const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'editor' | 'preview'>('editor');
+  const [noticeSearchQuery, setNoticeSearchQuery] = useState('');
+  const [noticeFilterCategory, setNoticeFilterCategory] = useState<string>('전체');
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
@@ -3162,16 +3164,60 @@ const renderPreviewLines = () => {
             </div>
           </div>
 
-          {/* Card grid */}
-          {notices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-              <Bell className="w-16 h-16 mb-4 text-slate-300" />
-              <p className="text-lg font-medium">등록된 공지사항이 없습니다.</p>
-              <p className="text-sm mt-1">관리자가 공지를 올리면 여기에 표시됩니다.</p>
+          {/* Search & Filter bar */}
+          {notices.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="공지사항 검색..."
+                  className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none bg-white"
+                  value={noticeSearchQuery}
+                  onChange={e => setNoticeSearchQuery(e.target.value)}
+                />
+                <AlertCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" style={{display: noticeSearchQuery ? 'none' : 'block'}} />
+                <Bell className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" style={{display: noticeSearchQuery ? 'block' : 'none'}} />
+                {noticeSearchQuery && (
+                  <button onClick={() => setNoticeSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+                )}
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {['전체', '공지', '행사', '긴급', '안내'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setNoticeFilterCategory(cat)}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors whitespace-nowrap ${noticeFilterCategory === cat ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'}`}
+                  >{cat}</button>
+                ))}
+              </div>
             </div>
-          ) : (
+          )}
+
+          {/* Card grid */}
+          {(() => {
+            const filteredNotices = notices.filter((n: any) => {
+              const matchCat = noticeFilterCategory === '전체' || (n.category || '공지') === noticeFilterCategory;
+              const q = noticeSearchQuery.toLowerCase().trim();
+              const matchQ = !q || n.title?.toLowerCase().includes(q) || n.data?.some((i: any) => i.text?.toLowerCase().includes(q));
+              return matchCat && matchQ;
+            });
+            if (notices.length === 0) return (
+              <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+                <Bell className="w-16 h-16 mb-4 text-slate-300" />
+                <p className="text-lg font-medium">등록된 공지사항이 없습니다.</p>
+                <p className="text-sm mt-1">관리자가 공지를 올리면 여기에 표시됩니다.</p>
+              </div>
+            );
+            if (filteredNotices.length === 0) return (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                <AlertCircle className="w-12 h-12 mb-3 text-slate-300" />
+                <p className="text-base font-medium">검색 결과가 없습니다.</p>
+                <button onClick={() => { setNoticeSearchQuery(''); setNoticeFilterCategory('전체'); }} className="mt-3 text-sm text-blue-500 hover:underline">필터 초기화</button>
+              </div>
+            );
+            return (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {notices.map((notice: any) => {
+              {filteredNotices.map((notice: any) => {
                 const firstImage = notice.data?.find((i: any) => i.image)?.image;
                 const excerpt = notice.data?.filter((i: any) => i.text?.trim()).map((i: any) => i.text).join(' ').slice(0, 120) || '';
                 const catColor: Record<string, string> = { '공지': 'bg-blue-100 text-blue-700', '행사': 'bg-emerald-100 text-emerald-700', '긴급': 'bg-red-100 text-red-700', '안내': 'bg-amber-100 text-amber-700' };
@@ -3217,7 +3263,8 @@ const renderPreviewLines = () => {
                 );
               })}
             </div>
-          )}
+            );
+          })()}
 
           {/* Full article modal */}
           {activeNotice && (
