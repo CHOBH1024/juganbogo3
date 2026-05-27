@@ -359,6 +359,14 @@ export default function App() {
   const [churchChangeParish, setChurchChangeParish] = useState(parish);
   const [churchChangeChurch, setChurchChangeChurch] = useState(church);
 
+  // 보고서 섹션 접기/펼치기 (대항목 ID → collapsed)
+  const [collapsedSections, setCollapsedSections] = useState<Set<number>>(new Set());
+  const toggleSection = (id: number) => setCollapsedSections(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
   // 새 주간보고 시작 모달 (admin 전용)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false);
   const [newWeekPassword, setNewWeekPassword] = useState('');
@@ -3664,12 +3672,22 @@ const renderPreviewLines = () => {
           <div className="flex-1 pr-2 space-y-2 pb-4">
             {(() => {
               const editorCounters = [0, 0, 0, 0, 0, 0];
+              let currentL0Id: number | null = null;
               return reportData.map((item, index) => {
                 if (item.level === 0) {
+                  currentL0Id = item.id;
                   editorCounters[0]++; editorCounters[1]=0; editorCounters[2]=0; editorCounters[3]=0; editorCounters[4]=0; editorCounters[5]=0;
+                  const isCollapsed = collapsedSections.has(item.id);
                   return (
                     <div key={item.id} className="flex flex-col gap-2 py-3 mt-4 first:mt-0 group">
                       <div className="font-bold text-lg text-blue-800 border-b-2 border-blue-100 w-full pb-1 flex items-center gap-2">
+                        <button
+                          onClick={() => toggleSection(item.id)}
+                          className="shrink-0 text-blue-400 hover:text-blue-600 transition-colors"
+                          title={isCollapsed ? '섹션 펼치기' : '섹션 접기'}
+                        >
+                          <ArrowRight className={`w-4 h-4 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
+                        </button>
                         <span className="shrink-0">{toRoman(editorCounters[0])}.</span>
                         <TextareaAutosize
                           id={`input-${item.id}`}
@@ -3702,12 +3720,33 @@ const renderPreviewLines = () => {
                           </button>
                         </div>
                       </div>
-                      
-                      {item.image && (
+
+                      {/* 접힌 상태 표시 */}
+                      {isCollapsed && (
+                        <div
+                          onClick={() => toggleSection(item.id)}
+                          className="cursor-pointer flex items-center gap-2 px-3 py-2 bg-blue-50 border border-dashed border-blue-200 rounded-lg text-xs text-blue-500 hover:bg-blue-100 transition-colors"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                          <span className="font-medium">
+                            {(() => {
+                              // 이 L0 섹션에 속한 자식 아이템 수 계산
+                              let count = 0;
+                              for (let i = index + 1; i < reportData.length; i++) {
+                                if (reportData[i].level === 0) break;
+                                if (reportData[i].text?.trim()) count++;
+                              }
+                              return `${count}개 항목 숨김 — 클릭하여 펼치기`;
+                            })()}
+                          </span>
+                        </div>
+                      )}
+
+                      {!isCollapsed && item.image && (
                         <div className="flex items-center gap-2 mt-1">
                           <div className="relative inline-block group/img">
                             <img src={item.image} alt="첨부" className="h-24 object-contain rounded border border-slate-200" />
-                            <button 
+                            <button
                               onClick={() => removeImage(item.id)}
                               className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover/img:opacity-100 transition-opacity shadow"
                             >
@@ -3716,8 +3755,8 @@ const renderPreviewLines = () => {
                           </div>
                         </div>
                       )}
-                      
-                      {item.tableData && (
+
+                      {!isCollapsed && item.tableData && (
                         <div className="mt-2 text-slate-700">
                           <div className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
                             <div className="flex justify-between items-center bg-slate-50 px-2 py-1.5 border-b border-slate-200">
@@ -3883,6 +3922,11 @@ const renderPreviewLines = () => {
                       )}
                     </div>
                   );
+                }
+
+                // 접힌 섹션의 자식 아이템은 렌더링 생략
+                if (currentL0Id !== null && collapsedSections.has(currentL0Id)) {
+                  return null;
                 }
 
                 return (() => {
@@ -4517,6 +4561,34 @@ const renderPreviewLines = () => {
                   );
                 })}
               </div>
+              {/* 미제출 교구 알림 문자 복사 */}
+              {(() => {
+                const notDone = Object.entries(PARISH_CHURCH_MAP)
+                  .filter(([p]) => p !== '협회')
+                  .filter(([p, cs]) => {
+                    const tcs = (cs as string[]).slice(1);
+                    return tcs.some(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted');
+                  })
+                  .map(([p]) => getDisplayParish(p));
+                if (notDone.length === 0) return (
+                  <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-emerald-600 font-bold flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5" /> 전국 모든 교구 제출 완료! 🎉
+                  </div>
+                );
+                return (
+                  <button
+                    onClick={() => {
+                      const dateStr = appConfig?.solarDate || '이번 주';
+                      const msg = `[전국 주간보고 알림]\n${dateStr} 주간보고 미완료 교구:\n${notDone.map(p => `• ${p}`).join('\n')}\n\n빠른 제출 독려 부탁드립니다.`;
+                      navigator.clipboard.writeText(msg);
+                      toast.success('미완료 교구 알림 문자가 복사되었습니다.');
+                    }}
+                    className="mt-3 pt-3 border-t border-slate-100 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> 미완료 교구({notDone.length}개) 알림 문자 복사
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Right Panel: Batch AI Review & Word compilation */}
