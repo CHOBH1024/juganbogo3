@@ -5032,7 +5032,7 @@ const renderPreviewLines = () => {
 
                   {/* 현재 교회 */}
                   <button
-                    onClick={() => { if(window.confirm(`"${church}" 교회 데이터를 초기화하시겠습니까?`)) executeReset([{parish, church}], false); }}
+                    onClick={() => { executeReset([{parish, church}], false); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-300 hover:bg-red-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
@@ -5046,7 +5046,7 @@ const renderPreviewLines = () => {
 
                   {/* 현재 교구 전체 */}
                   <button
-                    onClick={() => { const targets = PARISH_CHURCH_MAP[parish].map(c => ({parish, church: c})); if(window.confirm(`"${parish}" 교구 전체(${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                    onClick={() => { const targets = PARISH_CHURCH_MAP[parish].map(c => ({parish, church: c})); executeReset(targets, true); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-orange-300 hover:bg-orange-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-orange-100 flex items-center justify-center shrink-0">
@@ -5061,7 +5061,7 @@ const renderPreviewLines = () => {
                   {/* 협회 전체 */}
                   {activeTab === 'association' || parish === '협회' ? (
                     <button
-                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); if(window.confirm(`협회 전체(${targets.length}개 국)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); executeReset(targets, true); }}
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
                     >
                       <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
@@ -5074,7 +5074,7 @@ const renderPreviewLines = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); if(window.confirm(`모든 교구(협회 제외, ${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); executeReset(targets, true); }}
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
                     >
                       <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
@@ -5089,7 +5089,7 @@ const renderPreviewLines = () => {
 
                   {/* 교구+협회 전체 */}
                   <button
-                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); if(window.confirm(`정말로 교구+협회 전체(${targets.length}개)를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) executeReset(targets, true); }}
+                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); executeReset(targets, true); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-400 hover:bg-red-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
@@ -5168,11 +5168,8 @@ const renderPreviewLines = () => {
                     disabled={Object.values(resetSelectedChurches).flat().length === 0}
                     onClick={() => {
                       const targets = Object.entries(resetSelectedChurches).flatMap(([p, cs]) => (cs as string[]).map(c => ({parish: p, church: c})));
-                      const totalAll = Object.values(PARISH_CHURCH_MAP).flat().length;
                       const requirePwd = targets.length > 1;
-                      if(window.confirm(`선택한 ${targets.length}개 교회/국의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
-                        executeReset(targets, requirePwd);
-                      }
+                      executeReset(targets, requirePwd);
                     }}
                     className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-bold transition-colors flex items-center gap-1.5"
                   >
