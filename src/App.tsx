@@ -4622,6 +4622,35 @@ const renderPreviewLines = () => {
                       {/* Expanded church list */}
                       {isExpanded && (
                         <div className="border-t border-slate-100 px-3 pb-3 pt-2">
+                          {/* 교구 빠른 액션 */}
+                          <div className="flex gap-1.5 mb-2">
+                            <button
+                              onClick={() => {
+                                // 해당 교구로 전환하여 Word 내보내기
+                                openPasswordModal(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'skmt0909!' || pwd === 'samu', () => {
+                                  setActiveTab('report');
+                                  setParish(p);
+                                  setChurch(PARISH_CHURCH_MAP[p][0]);
+                                  setTimeout(() => exportToWord(), 500);
+                                });
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-[10px] font-bold transition-colors"
+                            >
+                              <Download className="w-3 h-3" /> Word 내보내기
+                            </button>
+                            <button
+                              onClick={() => {
+                                const notSub = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted').map(c => getDisplayChurch(c));
+                                if (notSub.length === 0) { toast.success('모든 교회가 제출 완료되었습니다!'); return; }
+                                const msg = `[${getDisplayParish(p)} 주간보고 알림]\n${appConfig?.solarDate || '이번 주'} 미제출 교회:\n${notSub.map(c => `• ${c}`).join('\n')}\n\n빠른 제출 부탁드립니다.`;
+                                navigator.clipboard.writeText(msg);
+                                toast.success('교구 미제출 알림이 복사되었습니다.');
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[10px] font-bold transition-colors"
+                            >
+                              <Copy className="w-3 h-3" /> 미제출 알림
+                            </button>
+                          </div>
                           <div className="grid grid-cols-2 gap-1.5">
                             {targetChurches.map(c => {
                               const st = adminReportStatusMap[`${p}_${c}`] || 'empty';
@@ -4704,7 +4733,7 @@ const renderPreviewLines = () => {
                       navigator.clipboard.writeText(msg);
                       toast.success('미완료 교구 알림 문자가 복사되었습니다.');
                     }}
-                    className="mt-3 pt-3 border-t border-slate-100 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
                   >
                     <Copy className="w-3.5 h-3.5" /> 미완료 교구({notDone.length}개) 알림 문자 복사
                   </button>
