@@ -640,6 +640,19 @@ export default function App() {
     }
   };
 
+  const togglePinNotice = async (id: string) => {
+    try {
+      const newNotices = notices.map((n: any) => n.id === id ? { ...n, pinned: !n.pinned } : n);
+      // 핀된 공지를 앞으로 정렬
+      const sorted = [...newNotices].sort((a: any, b: any) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+      await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: sorted, updated_at: new Date().toISOString() });
+      setNotices(sorted);
+      toast.success(newNotices.find((n: any) => n.id === id)?.pinned ? '공지를 고정 해제했습니다.' : '공지를 상단에 고정했습니다.');
+    } catch (e) {
+      toast.error('오류가 발생했습니다.');
+    }
+  };
+
   const deleteNotice = async (id: string) => {
     try {
       const newNotices = notices.filter(n => n.id !== id);
@@ -2168,6 +2181,33 @@ export default function App() {
     setReportData(newReportData);
   };
 
+  // L0 블록 복제 (대항목 + 하위 항목 전체)
+  const duplicateL0Block = (index: number) => {
+    const targetItem = reportData[index];
+    if (targetItem.level !== 0) return;
+
+    // 이 L0 블록에 속한 모든 아이템 수집
+    const block: typeof reportData = [targetItem];
+    for (let i = index + 1; i < reportData.length; i++) {
+      if (reportData[i].level === 0) break;
+      block.push(reportData[i]);
+    }
+
+    // 새 ID 부여하여 복제
+    let idOffset = nextId;
+    const duplicated = block.map(item => ({ ...item, id: idOffset++, text: item.id === targetItem.id ? item.text + ' (복사본)' : item.text }));
+    setNextId(idOffset);
+
+    // 블록 끝 다음에 삽입
+    const insertAt = index + block.length;
+    setReportData(data => {
+      const newData = [...data];
+      newData.splice(insertAt, 0, ...duplicated);
+      return newData;
+    });
+    toast.success('섹션이 복제되었습니다.');
+  };
+
   const addNewItem = (insertIndex: number = -1, defaultLevel: number = 1) => {
     const newItem = { id: nextId, text: "", level: defaultLevel };
     setNextId(prev => prev + 1);
@@ -3347,6 +3387,7 @@ const renderPreviewLines = () => {
                     key={notice.id}
                     onClick={() => { setActiveNotice(notice); markNoticeRead(notice.id); }}
                     className={`bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer group transition-all duration-200 hover:shadow-lg ${
+                      notice.pinned ? 'border-2 border-amber-400 ring-1 ring-amber-200 shadow-amber-50' :
                       cat === '긴급' ? 'border-2 border-red-400 ring-1 ring-red-200 shadow-red-100' :
                       isUnread ? 'border-2 border-blue-400 ring-1 ring-blue-200' :
                       'border border-slate-200 hover:border-blue-200'
@@ -3371,13 +3412,25 @@ const renderPreviewLines = () => {
                         </div>
                       )}
                       <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                        {notice.pinned && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-500 text-white flex items-center gap-0.5">📌 고정</span>}
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${catColor[cat] || 'bg-slate-100 text-slate-600'}`}>{cat}</span>
                         {isUnread && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white animate-pulse">NEW</span>}
                       </div>
                       {isAdmin && (
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); togglePinNotice(notice.id); }}
+                            className={`${notice.pinned ? 'bg-amber-500 hover:bg-amber-600' : 'bg-black/40 hover:bg-amber-500'} text-white rounded-full p-1.5 transition-all`}
+                            title={notice.pinned ? '고정 해제' : '상단 고정'}
+                          >
+                            <span className="text-[11px] leading-none">📌</span>
+                          </button>
+                        </div>
+                      )}
+                      {isAdmin && (
                         <button
                           onClick={(e) => { e.stopPropagation(); deleteNotice(notice.id); }}
-                          className="absolute top-2 right-2 bg-black/40 hover:bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all"
+                          className="absolute bottom-2 right-2 bg-black/40 hover:bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all"
                         ><X className="w-3.5 h-3.5" /></button>
                       )}
                     </div>
@@ -3779,6 +3832,9 @@ const renderPreviewLines = () => {
                           </label>
                           <button onClick={() => addNewItem(index, 1)} className="p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-600 font-medium text-xs rounded flex items-center gap-1" title="세부 항목 추가">
                               <Plus className="w-3.5 h-3.5" /> 세부 항목
+                          </button>
+                          <button onClick={() => duplicateL0Block(index)} className="p-1 text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 rounded" title="이 섹션 복제">
+                            <Copy className="w-4 h-4" />
                           </button>
                           <button onClick={() => removeItem(item.id)} className="p-1 text-red-300 hover:bg-red-50 hover:text-red-500 rounded-md shrink-0 transition-colors" title="삭제">
                             <X className="w-4 h-4" />
