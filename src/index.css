@@ -33,5 +33,39 @@ body {
 }
 
 body {
-  overflow: hidden;
+  background-color: #f3f4f6;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.word-document-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+  padding-bottom: 6rem; /* Space for bottom nav or toolbars */
+  min-height: 100vh;
+}
+
+.word-page {
+  background-color: white;
+  width: 100%;
+  max-width: 21cm; /* A4 width */
+  min-height: 29.7cm; /* A4 height */
+  padding: 2cm;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+@media (max-width: 768px) {
+  .word-document-wrapper {
+    padding: 0;
+    padding-bottom: 80px; /* Space for bottom nav on mobile */
+  }
+  
+  .word-page {
+    max-width: 100%;
+    min-height: 100vh;
+    padding: 1rem;
+    box-shadow: none;
+    border: none;
+  }
 }

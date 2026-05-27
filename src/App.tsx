@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -8,7 +8,7 @@ import 'react-image-crop/dist/ReactCrop.css';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { parseHtmlTable } from './lib/tableParser';
 import { supabase } from './lib/supabase';
-
+import RoleSelection, { Role } from './RoleSelection';
 const getLocalServerUrl = () => {
   const customUrl = localStorage.getItem('LOCAL_SERVER_URL');
   if (customUrl) return customUrl;
@@ -201,9 +201,26 @@ function buildTree(flatData: ReportItem[]) {
 
 export default function App() {
 
+  const [role, setRole] = useState<Role>(() => (localStorage.getItem('APP_ROLE') as Role) || null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
-  const [parish, setParish] = useState("천원특별");
-  const [church, setChurch] = useState(PARISH_CHURCH_MAP["천원특별"][0]);
+  const [parish, setParish] = useState(() => localStorage.getItem('APP_PARISH') || "천원특별");
+  const [church, setChurch] = useState(() => localStorage.getItem('APP_CHURCH') || PARISH_CHURCH_MAP["천원특별"][0]);
+  
+  const handleSelectRole = (selectedRole: Role, data?: any) => {
+    localStorage.setItem('APP_ROLE', selectedRole || '');
+    setRole(selectedRole);
+    if (data?.parish) {
+      localStorage.setItem('APP_PARISH', data.parish);
+      setParish(data.parish);
+    }
+    if (data?.church) {
+      localStorage.setItem('APP_CHURCH', data.church);
+      setChurch(data.church);
+    }
+    if (selectedRole === 'admin') {
+      setActiveTab('admin_console');
+    }
+  };
   
   const [reportData, setReportData] = useState<ReportItem[]>(DEFAULT_REPORT);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -2613,27 +2630,53 @@ const renderPreviewLines = () => {
     }
   };
 
+  if (!role) {
+    return <RoleSelection onSelectRole={handleSelectRole} parishChurchMap={PARISH_CHURCH_MAP} />;
+  }
+
   return (
-    <div className="min-h-screen bg-slate-100 p-2 sm:p-4 md:p-6 font-sans text-slate-800 flex flex-col">
-      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide snap-x whitespace-nowrap">
-           <button onClick={() => { setActiveTab('report'); setParish('천원특별'); setChurch(PARISH_CHURCH_MAP['천원특별'][0]); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 교구 업무보고 작성</button>
-           <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 업무보고 작성</button>
-           <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지사항 올리기</button>
+    <div className="word-document-wrapper font-sans text-slate-800">
+      <div className="word-page flex flex-col relative">
+        <div className="w-full max-w-full mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="hidden md:flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide snap-x whitespace-nowrap">
+           <button onClick={() => { setActiveTab('report'); setParish(role === 'church' || role === 'manager' ? parish : '천원특별'); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 업무보고</button>
+           {role === 'admin' && (
+             <>
+               <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 보고</button>
+               <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지 작성</button>
+             </>
+           )}
            <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><Bell className="w-4 h-4"/> 공지사항 확인</button>
+           {role === 'admin' && (
             <button 
-              onClick={() => {
-                const pwd = prompt("관리자 비밀번호를 입력하세요:");
-                if (pwd === "skmt0909!") {
-                  setActiveTab('admin_console');
-                } else if (pwd !== null) {
-                  alert("비밀번호가 일치하지 않습니다.");
-                }
-              }} 
+              onClick={() => setActiveTab('admin_console')} 
               className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'admin_console' ? 'bg-purple-600 text-white font-extrabold shadow-purple-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
             >
-              <Settings className="w-4 h-4"/> 관리자 취합 콘솔
+              <Settings className="w-4 h-4"/> 관리자 콘솔
             </button>
+           )}
+        </div>
+        
+        {/* Mobile Bottom Navigation */}
+        <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around p-2 z-[60] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] pb-safe">
+          <button onClick={() => setActiveTab('report')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'report' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+            <BookOpen className="w-6 h-6 mb-1"/>
+            <span className="text-[10px] font-bold">업무보고</span>
+          </button>
+          <button onClick={() => setActiveTab('notice')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'notice' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+            <Bell className="w-6 h-6 mb-1"/>
+            <span className="text-[10px] font-bold">공지사항</span>
+          </button>
+          {role === 'admin' && (
+            <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center p-2 flex-1 ${activeTab === 'admin_console' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+              <Settings className="w-6 h-6 mb-1"/>
+              <span className="text-[10px] font-bold">관리자</span>
+            </button>
+          )}
+          <button onClick={() => { localStorage.removeItem('APP_ROLE'); window.location.reload(); }} className="flex flex-col items-center p-2 flex-1 text-slate-400 hover:text-red-500">
+            <User className="w-6 h-6 mb-1"/>
+            <span className="text-[10px] font-bold">모드변경</span>
+          </button>
         </div>
         
         <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
@@ -2825,7 +2868,8 @@ const renderPreviewLines = () => {
                           id="parishSelect" 
                           value={parish}
                           onChange={handleParishChange}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                          disabled={role === 'manager' || role === 'church'}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium disabled:bg-slate-100 disabled:text-slate-500"
                         >
                           {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
                             <option key={p} value={p}>{getDisplayParish(p)}</option>
@@ -2839,7 +2883,8 @@ const renderPreviewLines = () => {
                         id="churchSelect" 
                         value={church}
                         onChange={(e) => handleChurchChange(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                        disabled={role === 'church'}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         {(PARISH_CHURCH_MAP[parish] || []).map(c => (
                           <option key={c} value={c}>{getDisplayChurch(c)}</option>
@@ -2849,41 +2894,43 @@ const renderPreviewLines = () => {
                   </>
                 )}
               </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-slate-500">교회별 제출 현황</span>
-                  <div className="flex gap-3 text-[10px] text-slate-500">
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>제출 확정</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>작성 중</span>
-                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>미작성</span>
+              {role !== 'church' && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-500">교회별 제출 현황</span>
+                    <div className="flex gap-3 text-[10px] text-slate-500">
+                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>제출 확정</span>
+                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>작성 중</span>
+                      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>미작성</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {PARISH_CHURCH_MAP[parish].map(c => {
+                      const stat = parishStats[c] || 'empty';
+                      let textColor = '';
+                      
+                      if (stat === 'submitted') {
+                        textColor = 'text-slate-700 font-bold';
+                      } else if (stat === 'draft') {
+                        textColor = 'text-slate-700 font-bold';
+                      } else {
+                        textColor = 'text-slate-400';
+                      }
+                      
+                      return (
+                        <div 
+                          key={c}
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded-md border cursor-pointer hover:shadow-sm transition-all ${c === church ? 'ring-2 ring-blue-500 bg-white border-transparent' : 'bg-white border-slate-200'}`}
+                          onClick={() => handleChurchChange(c)}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${stat === 'submitted' ? 'bg-emerald-500' : stat === 'draft' ? 'bg-blue-500' : 'bg-slate-300'}`}></span>
+                          <span className={textColor}>{getDisplayChurch(c)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {PARISH_CHURCH_MAP[parish].map(c => {
-                    const stat = parishStats[c] || 'empty';
-                    let textColor = '';
-                    
-                    if (stat === 'submitted') {
-                      textColor = 'text-slate-700 font-bold';
-                    } else if (stat === 'draft') {
-                      textColor = 'text-slate-700 font-bold';
-                    } else {
-                      textColor = 'text-slate-400';
-                    }
-                    
-                    return (
-                      <div 
-                        key={c}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded-md border cursor-pointer hover:shadow-sm transition-all ${c === church ? 'ring-2 ring-blue-500 bg-white border-transparent' : 'bg-white border-slate-200'}`}
-                        onClick={() => handleChurchChange(c)}
-                      >
-                        <span className={`w-2 h-2 rounded-full ${stat === 'submitted' ? 'bg-emerald-500' : stat === 'draft' ? 'bg-blue-500' : 'bg-slate-300'}`}></span>
-                        <span className={textColor}>{getDisplayChurch(c)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -4371,6 +4418,7 @@ const renderPreviewLines = () => {
         </div>
       )}
 
+    </div>
     </div>
   );
 }
