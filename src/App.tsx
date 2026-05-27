@@ -1827,7 +1827,7 @@ export default function App() {
         });
       } else if (ext === 'hwpx') {
         // JSZip으로 XML 파싱
-        const JSZip = (await import('https://cdn.skypack.dev/jszip' as any)).default;
+        const JSZip = (await import('jszip')).default;
         const zip = await JSZip.loadAsync(file);
         const sectionFile = Object.keys(zip.files).find(n => n.includes('section') && n.endsWith('.xml'));
         if (sectionFile) {
@@ -1871,11 +1871,10 @@ export default function App() {
     for (const { parish: p, church: c } of targets) {
       const key = `report_${p}_${c}`;
       localStorage.setItem(key, JSON.stringify(defaultData));
-      if (supabase) {
-        try {
-          await supabase.storage.from('images').upload(`db_reports/${key}.json`, JSON.stringify(defaultData), { upsert: true, contentType: 'application/json' });
-        } catch (e) { console.error(e); }
-      }
+      // saveDbData로 Supabase + Drive 모두 초기화
+      try {
+        await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+      } catch (e) { console.error(e); }
     }
     const isCurrentIncluded = targets.some(t => t.parish === parish && t.church === church);
     if (isCurrentIncluded) {
@@ -1884,6 +1883,8 @@ export default function App() {
       setStatus('draft');
     }
     updateParishStats();
+    // 관리자 콘솔 현황도 갱신
+    if (activeTab === 'admin_console') loadAllReportsStatus();
     setShowResetModal(false);
     alert(`${targets.length}개 교회/국의 데이터가 초기화되었습니다.`);
   };
