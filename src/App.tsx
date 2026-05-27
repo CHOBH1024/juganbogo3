@@ -311,6 +311,10 @@ export default function App() {
   const [driveStatusLoading, setDriveStatusLoading] = useState(false);
   const [showAiStudioGuide, setShowAiStudioGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetSelectedParishes, setResetSelectedParishes] = useState<string[]>([]);
+  const [resetSelectedChurches, setResetSelectedChurches] = useState<{ [k: string]: string[] }>({});
+  const [resetMode, setResetMode] = useState<'quick' | 'custom'>('quick');
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1733,13 +1737,39 @@ export default function App() {
   };
 
   const handleReset = () => {
-    if (window.confirm("현재 작성된 내용이 모두 삭제되고 초기화됩니다. 계속하시겠습니까?")) {
+    setResetMode('quick');
+    setResetSelectedParishes([]);
+    setResetSelectedChurches({});
+    setShowResetModal(true);
+  };
+
+  const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean) => {
+    if (requirePassword) {
+      const pwd = prompt("초기화 비밀번호를 입력하세요:");
+      if (pwd !== "skmt0909!") {
+        if (pwd !== null) alert("비밀번호가 일치하지 않습니다.");
+        return;
+      }
+    }
+    const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+    for (const { parish: p, church: c } of targets) {
+      const key = `report_${p}_${c}`;
+      localStorage.setItem(key, JSON.stringify(defaultData));
+      if (supabase) {
+        try {
+          await supabase.storage.from('images').upload(`db_reports/${key}.json`, JSON.stringify(defaultData), { upsert: true, contentType: 'application/json' });
+        } catch (e) { console.error(e); }
+      }
+    }
+    const isCurrentIncluded = targets.some(t => t.parish === parish && t.church === church);
+    if (isCurrentIncluded) {
       setReportData(DEFAULT_REPORT);
       setLastSaved(null);
       setStatus('draft');
-      const key = `report_${parish}_${church}`;
-      localStorage.removeItem(key);
     }
+    updateParishStats();
+    setShowResetModal(false);
+    alert(`${targets.length}개 교회/국의 데이터가 초기화되었습니다.`);
   };
 
   const handleSave = async (isSubmit: boolean = false) => {
@@ -4562,7 +4592,7 @@ const renderPreviewLines = () => {
 
 
       {tableContextMenu && (
-        <div 
+        <div
           className="fixed z-50 bg-white border border-slate-200 shadow-xl rounded py-1 w-36 text-sm"
           style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
         >
@@ -4584,6 +4614,190 @@ const renderPreviewLines = () => {
           <div className="h-px bg-slate-200 my-1"></div>
           <button className="w-full text-left px-3 py-1.5 hover:bg-slate-100" onClick={() => addTableCol(tableContextMenu.id)}>열 추가</button>
           <button className="w-full text-left px-3 py-1.5 hover:bg-slate-100 text-red-600" onClick={() => removeTableCol(tableContextMenu.id, tableContextMenu.c)}>열 삭제</button>
+        </div>
+      )}
+
+      {/* Reset Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowResetModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-red-50 rounded-t-2xl">
+              <h2 className="text-lg font-bold text-red-700 flex items-center gap-2">
+                <Trash2 className="w-5 h-5" /> 데이터 초기화
+              </h2>
+              <button onClick={() => setShowResetModal(false)} className="text-slate-400 hover:text-slate-600 rounded-full p-1.5 hover:bg-slate-200 transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+
+            {/* Mode Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-50">
+              <button
+                onClick={() => setResetMode('quick')}
+                className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${resetMode === 'quick' ? 'text-red-600 border-b-2 border-red-500 bg-white' : 'text-slate-500 hover:text-slate-700'}`}
+              >빠른 선택</button>
+              <button
+                onClick={() => setResetMode('custom')}
+                className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${resetMode === 'custom' ? 'text-red-600 border-b-2 border-red-500 bg-white' : 'text-slate-500 hover:text-slate-700'}`}
+              >교회별 선택</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5">
+              {resetMode === 'quick' ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500 mb-4">초기화할 범위를 선택하세요. 이 작업은 되돌릴 수 없습니다.</p>
+
+                  {/* 현재 교회 */}
+                  <button
+                    onClick={() => { if(window.confirm(`"${church}" 교회 데이터를 초기화하시겠습니까?`)) executeReset([{parish, church}], false); }}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-300 hover:bg-red-50 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-red-500" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">현재 교회만 초기화</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{parish} · <span className="font-medium text-red-600">{church}</span> 1개 교회</div>
+                    </div>
+                  </button>
+
+                  {/* 현재 교구 전체 */}
+                  <button
+                    onClick={() => { const targets = PARISH_CHURCH_MAP[parish].map(c => ({parish, church: c})); if(window.confirm(`"${parish}" 교구 전체(${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-orange-300 hover:bg-orange-50 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-orange-100 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-orange-500" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">현재 교구 전체 초기화</div>
+                      <div className="text-xs text-slate-500 mt-0.5"><span className="font-medium text-orange-600">{parish}</span> 교구 전체 {PARISH_CHURCH_MAP[parish]?.length}개 교회</div>
+                    </div>
+                  </button>
+
+                  {/* 협회 전체 */}
+                  {activeTab === 'association' || parish === '협회' ? (
+                    <button
+                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); if(window.confirm(`협회 전체(${targets.length}개 국)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
+                        <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-amber-500" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800 text-sm">협회 전체 초기화</div>
+                        <div className="text-xs text-slate-500 mt-0.5">협회 <span className="font-medium text-amber-600">{PARISH_CHURCH_MAP['협회']?.length}개 국</span> 전체</div>
+                      </div>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); if(window.confirm(`모든 교구(협회 제외, ${targets.length}개 교회)를 초기화하시겠습니까?`)) executeReset(targets, true); }}
+                      className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
+                        <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-amber-500" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800 text-sm">전체 교구 초기화 (협회 제외)</div>
+                        <div className="text-xs text-slate-500 mt-0.5">교구 전체 <span className="font-medium text-amber-600">{Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p]).length}개 교회</span></div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* 교구+협회 전체 */}
+                  <button
+                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); if(window.confirm(`정말로 교구+협회 전체(${targets.length}개)를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) executeReset(targets, true); }}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-400 hover:bg-red-50 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-red-600" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-red-700 text-sm">⚠️ 전체 초기화 (교구+협회)</div>
+                      <div className="text-xs text-slate-500 mt-0.5">모든 교구+협회 <span className="font-medium text-red-600">{Object.values(PARISH_CHURCH_MAP).flat().length}개</span> 전체 — 비밀번호 필요</div>
+                    </div>
+                  </button>
+                </div>
+              ) : (
+                /* Custom church selection */
+                <div>
+                  <p className="text-xs text-slate-500 mb-3">초기화할 교구와 교회를 직접 선택하세요.</p>
+                  <div className="space-y-3">
+                    {Object.keys(PARISH_CHURCH_MAP).map(p => {
+                      const parishChurches = PARISH_CHURCH_MAP[p];
+                      const selectedChurchesInParish = (resetSelectedChurches[p] || []);
+                      const allSelected = selectedChurchesInParish.length === parishChurches.length;
+                      const someSelected = selectedChurchesInParish.length > 0 && !allSelected;
+                      return (
+                        <div key={p} className="border border-slate-200 rounded-xl overflow-hidden">
+                          {/* Parish header */}
+                          <button
+                            onClick={() => {
+                              if (allSelected) {
+                                setResetSelectedChurches(prev => { const n = {...prev}; delete n[p]; return n; });
+                              } else {
+                                setResetSelectedChurches(prev => ({...prev, [p]: [...parishChurches]}));
+                              }
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold transition-colors ${allSelected ? 'bg-red-50 text-red-700' : someSelected ? 'bg-orange-50 text-orange-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                          >
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${allSelected ? 'bg-red-500 border-red-500' : someSelected ? 'bg-orange-400 border-orange-400' : 'border-slate-300'}`}>
+                              {(allSelected || someSelected) && <Check className="w-3 h-3 text-white" />}
+                            </div>
+                            {p}
+                            <span className="ml-auto text-xs font-normal text-slate-400">{selectedChurchesInParish.length}/{parishChurches.length}</span>
+                          </button>
+                          {/* Church list */}
+                          <div className="flex flex-wrap gap-1.5 p-3 bg-white">
+                            {parishChurches.map(c => {
+                              const isSelected = selectedChurchesInParish.includes(c);
+                              return (
+                                <button
+                                  key={c}
+                                  onClick={() => {
+                                    setResetSelectedChurches(prev => {
+                                      const cur = prev[p] || [];
+                                      return {...prev, [p]: isSelected ? cur.filter(x => x !== c) : [...cur, c]};
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${isSelected ? 'bg-red-500 border-red-500 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600'}`}
+                                >{c}</button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {resetMode === 'custom' && (
+              <div className="px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex items-center justify-between gap-3">
+                <span className="text-sm text-slate-500">
+                  {Object.values(resetSelectedChurches).flat().length}개 선택됨
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowResetModal(false)} className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors">취소</button>
+                  <button
+                    disabled={Object.values(resetSelectedChurches).flat().length === 0}
+                    onClick={() => {
+                      const targets = Object.entries(resetSelectedChurches).flatMap(([p, cs]) => (cs as string[]).map(c => ({parish: p, church: c})));
+                      const totalAll = Object.values(PARISH_CHURCH_MAP).flat().length;
+                      const requirePwd = targets.length > 1;
+                      if(window.confirm(`선택한 ${targets.length}개 교회/국의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
+                        executeReset(targets, requirePwd);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-bold transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" /> 선택 초기화
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
