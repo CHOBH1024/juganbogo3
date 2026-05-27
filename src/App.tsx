@@ -231,7 +231,11 @@ export default function App() {
   const [showJsonModal, setShowJsonModal] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [showAiPasteModal, setShowAiPasteModal] = useState(false);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const aiPasteRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [appConfig, setAppConfig] = useState<{solarDate: string, heavenlyDate: string} | null>(null);
   const [jsonFormat, setJsonFormat] = useState<'flat' | 'tree'>('flat');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -343,6 +347,18 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'notice') loadNotices();
   }, [activeTab]);
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const parsed = await fetchDbData('SYSTEM_CONFIG');
+        if (parsed && parsed.data) {
+          setAppConfig(parsed.data);
+        }
+      } catch (e) { console.error(e); }
+    };
+    loadConfig();
+  }, []);
 
   const handleAdminLogin = () => {
     const pwd = prompt('관리자 비밀번호를 입력하세요:');
@@ -1876,6 +1892,96 @@ export default function App() {
     }
   };
 
+  const handleAiPasteSubmit = async () => {
+    if (!aiPasteRef.current) return;
+    const htmlContent = aiPasteRef.current.innerHTML;
+    if (!htmlContent.trim()) {
+      alert("내용을 붙여넣어 주세요.");
+      return;
+    }
+    setIsAiProcessing(true);
+    try {
+      const aiPrompt = `당신은 사용자가 붙여넣은 텍스트/표/이미지를 주간업무보고 JSON 양식으로 자동 변환해주는 AI입니다.
+아래 HTML 형태의 원본 데이터를 분석하여 가장 적절한 계층(level: 1~5) 구조로 분리하고 아래 JSON 배열로 반환하세요.
+
+[필수 구조화 및 정렬 규칙]
+1. 세부 항목(level 2 이상)은 반드시 다음 순서로 재배치하세요:
+   1순위) 일시, 2순위) 장소, 3순위) 대상/참석인원, 4순위) 주제/목적, 5순위) 주요 내용, 6순위) 결과/향후 계획, 7순위) 사진/첨부
+2. "사진", "첨부", "대표사진" 등이 포함된 항목은 맥락을 불문하고 무조건 제일 마지막 순서로 보냅니다.
+3. "항목명: 내용" 형태로 서식을 통일하세요. (예: "일시: 2026년..." 형태)
+
+표나 이미지가 있다면 HTML의 구조를 보고 최대한 텍스트화하거나, 표라면 JSON 배열 안에 "tableData" 속성으로 2차원 문자열 배열 형태로 넣어주세요. 이미지가 Base64로 포함되어 있다면 "image" 속성에 넣어주세요.
+반드시 아래 JSON 배열 형태로만 응답하세요. 백틱이나 markdown 없이 순수 JSON만 반환해야 합니다.
+예시:
+[{ "text": "항목 내용", "level": 1 }, { "text": "", "level": 2, "tableData": [["제목1","제목2"],["내용1","내용2"]] }]`;
+
+      let text = "";
+      if (isLocalMode) {
+        const serverUrl = getLocalServerUrl();
+        const res = await fetch(`${serverUrl}/api/ollama-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: aiPrompt + `\n\n입력 데이터:\n${htmlContent}`
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          text = data.text;
+        } else {
+          throw new Error("Ollama API failed");
+        }
+      } else {
+        let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: aiPrompt + `\n\n입력 데이터:\n${htmlContent}` }] }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else if (response.status === 429) {
+          throw new Error("RATE_LIMIT");
+        } else {
+          throw new Error("API_ERROR");
+        }
+      }
+
+      const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      let parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) parsed = [parsed];
+
+      setReportData(prev => {
+        let maxId = Math.max(0, ...prev.map(d => d.id));
+        const newItems = parsed.map((item: any) => {
+          maxId++;
+          return {
+            id: maxId,
+            text: item.text || "",
+            level: item.level || 1,
+            tableData: item.tableData || undefined,
+            image: item.image || undefined
+          };
+        });
+        setNextId(maxId + 1);
+        return [...prev, ...newItems];
+      });
+      
+      setShowAiPasteModal(false);
+      aiPasteRef.current.innerHTML = '';
+    } catch (e: any) {
+      console.error(e);
+      alert("AI 변환에 실패했습니다: " + e.message);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const checkWithAI = async () => {
     setIsCheckingAI(true);
     setShowAiModal(true);
@@ -1907,6 +2013,12 @@ export default function App() {
       const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
 아래 제공된 데이터의 텍스트(text)와 구조(level)를 함께 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
 
+검토 및 윤문 기준 (사용자 맞춤 설정 적용됨):
+1. [문체]: 명료한 개조식 (감정을 배제하고 사실 위주로 "~함", "~음" 형태로 짧고 명확하게 종결)
+2. [교정 강도]: 문맥 윤문 (오탈자 수정은 물론, 어색하거나 앞뒤가 안 맞는 문맥까지 자연스럽게 다듬어서 가독성 향상)
+3. [분량]: 원문 분량 유지 (작성자가 올린 내용의 디테일을 훼손하지 않고 최대한 유지)
+4. [데이터 강조]: 볼드체 강조 (참석 인원, 금액, 날짜 등 중요한 숫자 데이터는 마크다운 **볼드체**로 묶어서 강조)
+
 문서 서식 규칙 (level 값):
 - level 0: 대분류 제목 (예: "전주 결과보고", "금주 계획") — Ⅰ. Ⅱ. 형식
 - level 1: 중분류 항목 (세부 내용의 소제목) — 1. 2. 형식
@@ -1916,12 +2028,15 @@ export default function App() {
 - level 5: 최하위 항목 — a. b. 형식
 
 검토 사항:
-1. 오타 또는 문맥상 어색한 텍스트
-2. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목
+1. 오타 또는 문맥상 어색한 텍스트 위 기준에 따라 수정
+2. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목 수정
 3. level이 내용에 맞지 않는 항목 (잘못된 계층 구조 → 올바른 level로 교정)
+4. 세부 항목(level 2 이상)의 정렬 우선순위: 1) 일시, 2) 장소, 3) 대상/참석인원, 4) 주제/목적, 5) 주요 내용, 6) 결과/향후 계획, 7) 사진/첨부
+5. "사진", "첨부", "대표사진" 등이 포함된 항목은 내용을 불문하고 항상 같은 계층 내 최하단으로 순서를 변경
+6. 항목 서식 통일: "일시 :", "일시-" 등을 "일시: " 형태로 통일 (콜론 뒤 한 칸 띄어쓰기)
 
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
-수정이 필요한 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
+수정이 필요한 항목과 순서가 변경된 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
 [{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
 
       let text = "";
@@ -2601,7 +2716,12 @@ const renderPreviewLines = () => {
       return;
     }
 
-    if (window.confirm("정말로 모든 교구/교회의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!")) {
+    const sDate = prompt("이번 주간보고 양력 날짜를 입력하세요 (예: 5월 4주차 또는 5월 27일):", appConfig?.solarDate || "");
+    if (!sDate) return;
+    const hDate = prompt("이번 주간보고 천일국 천력 날짜를 입력하세요 (예: 4월 11일):", appConfig?.heavenlyDate || "");
+    if (!hDate) return;
+
+    if (window.confirm(`[${sDate}] (천력 ${hDate}) 주간 취합 모드로 변경하며, 모든 교구/교회의 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다!`)) {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
       
       for (const p of Object.keys(PARISH_CHURCH_MAP)) {
@@ -2622,6 +2742,13 @@ const renderPreviewLines = () => {
           }
         }
       }
+
+      const newConfig = { solarDate: sDate, heavenlyDate: hDate };
+      try {
+        await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
+        setAppConfig(newConfig);
+      } catch(e) {}
+
       setReportData(DEFAULT_REPORT);
       setLastSaved(null);
       setStatus('draft');
@@ -2635,9 +2762,9 @@ const renderPreviewLines = () => {
   }
 
   return (
-    <div className="word-document-wrapper font-sans text-slate-800">
-      <div className="word-page flex flex-col relative">
-        <div className="w-full max-w-full mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800">
+      <div className="flex-1 flex flex-col relative">
+        <div className="w-full max-w-full p-2 md:p-4 lg:p-6 mb-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="hidden md:flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide snap-x whitespace-nowrap">
            <button onClick={() => { setActiveTab('report'); setParish(role === 'church' || role === 'manager' ? parish : '천원특별'); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 업무보고</button>
            {role === 'admin' && (
@@ -2679,8 +2806,23 @@ const renderPreviewLines = () => {
           </button>
         </div>
         
-        <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none">
-          <span className="text-blue-600 font-extrabold">☁️ 클라우드</span>
+        <div className="shrink-0 flex items-center gap-2 bg-white px-3.5 py-2 rounded-lg border border-slate-200 shadow-sm text-xs font-black self-end md:self-auto select-none overflow-x-auto max-w-full">
+          {appConfig && (
+            <span className="text-indigo-600 font-extrabold mr-1 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 whitespace-nowrap hidden sm:inline-block">
+              {appConfig.solarDate} (천력 {appConfig.heavenlyDate}) 취합 중...
+            </span>
+          )}
+          <span className="text-blue-600 font-extrabold hidden md:inline whitespace-nowrap">☁️ 클라우드</span>
+          
+          <button 
+            onClick={() => setShowGuideModal(true)}
+            className="ml-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+          >
+            <BookOpen className="w-3.5 h-3.5"/> 작성 가이드
+          </button>
+          <button onClick={() => { localStorage.removeItem('APP_ROLE'); window.location.reload(); }} className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded flex items-center gap-1 transition-colors whitespace-nowrap shrink-0">
+            <User className="w-3.5 h-3.5"/> 권한 변경
+          </button>
         </div>
       </div>
 
@@ -2780,14 +2922,10 @@ const renderPreviewLines = () => {
       )}
 
       {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
-      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0">
         
-        {/* Mobile Tab Switcher + 제출 버튼 */}
-        <div className="flex xl:hidden mb-3 gap-2">
-          <div className="flex flex-1 bg-white rounded-lg shadow-sm p-1 border border-slate-200">
-            <button onClick={() => setMobileView('editor')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'editor' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📝 작성창</button>
-            <button onClick={() => setMobileView('preview')} className={`flex-1 py-2.5 text-sm font-bold rounded-md transition-colors ${mobileView === 'preview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>👀 미리보기</button>
-          </div>
+        {/* Mobile Submit Button */}
+        <div className="flex xl:hidden mb-3 gap-2 justify-end">
           {activeTab !== 'notice_write' && (
             <button
               onClick={() => handleSave(status !== 'submitted')}
@@ -2799,9 +2937,9 @@ const renderPreviewLines = () => {
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[65%_35%] gap-4 lg:gap-6 flex-1 min-h-0">
-          {/* Editor Panel */}
-          <div className={`bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] ${mobileView === 'editor' ? 'flex' : 'hidden xl:flex'}`}>
+        <div className="flex-1 w-full pb-20 pt-4 flex justify-center">
+          {/* Editor Panel (A4 Style) */}
+          <div className="bg-white w-full max-w-4xl shadow-xl border border-slate-200 rounded-sm sm:rounded-md p-5 sm:p-12 min-h-[1056px] flex flex-col relative">
           
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
@@ -2817,14 +2955,6 @@ const renderPreviewLines = () => {
                 <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
                   <Check className="w-4 h-4" /> AI 준비됨
                 </span>
-                <button 
-                  onClick={() => setShowGuideModal(true)}
-                  className="flex items-center gap-1.5 text-sm bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
-                  title="작성 방법 안내"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  작성법 / 가이드
-                </button>
                 <button 
                   onClick={() => setShowJsonModal(true)}
                   className="flex items-center gap-2 text-sm bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md transition-colors shadow-sm"
@@ -2936,7 +3066,7 @@ const renderPreviewLines = () => {
 
 
 
-          <div className="flex-1 overflow-y-auto pr-2 space-y-2 pb-4">
+          <div className="flex-1 pr-2 space-y-2 pb-4">
             {(() => {
               const editorCounters = [0, 0, 0, 0, 0, 0];
               return reportData.map((item, index) => {
@@ -3519,65 +3649,6 @@ const renderPreviewLines = () => {
             </button>
           </div>
         </div>
-
-        {/* Preview Panel */}
-        <div className={`bg-[#fafbfc] p-5 sm:p-8 rounded-xl shadow-sm border border-slate-200 flex-col h-[calc(100vh-8rem)] xl:h-[calc(100vh-3rem)] overflow-y-auto ${mobileView === 'preview' ? 'flex' : 'hidden xl:flex'}`}>
-          <div className="mb-2 flex items-center justify-end">
-            <span className="text-[11px] text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded-md flex items-center gap-1">
-              <span>✏️</span> 좌측 에디터 또는 이 미리보기 창에서 직접 편집 가능
-            </span>
-          </div>
-          <div className="mb-1 font-serif">
-            <div className="border-t-2 border-b-[3px] border-[#4eaee7] py-3 mb-2">
-              <div className="text-3xl font-black text-center text-slate-800 tracking-tight">
-                {activeTab === 'notice_write' ? '공지사항 미리보기' : `<${getDisplayParish(parish)}> 주간업무보고`}
-              </div>
-            </div>
-            <div className="text-xl font-black text-blue-700 mb-1 drop-shadow-sm">
-              {activeTab === 'notice_write' ? (noticeTitle || '제목을 입력해주세요') : `${(PARISH_CHURCH_MAP[parish] || []).indexOf(church) + 1}. ${getDisplayChurch(church)}`}
-            </div>
-          </div>
-          <div
-            className="flex-1 font-serif text-slate-900"
-            onPaste={e => {
-              const imageItem = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/'));
-              if (imageItem) {
-                e.preventDefault();
-                const file = imageItem.getAsFile();
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = ev => {
-                  const dataUrl = ev.target?.result as string;
-                  const img = new Image();
-                  img.onload = () => {
-                    setReportData(prev => {
-                      const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
-                      setNextId(newId + 1);
-                      return [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.naturalWidth || 400, imageHeight: img.naturalHeight || 300 }];
-                    });
-                  };
-                  img.src = dataUrl;
-                };
-                reader.readAsDataURL(file);
-                return;
-              }
-              const html = e.clipboardData.getData('text/html');
-              if (html) {
-                const parsed = parseHtmlTable(html);
-                if (parsed?.tableData?.length) {
-                  e.preventDefault();
-                  setReportData(prev => {
-                    const newId = Math.max(0, ...prev.map(d => d.id)) + 1;
-                    setNextId(newId + 1);
-                    return [...prev, { id: newId, text: '', level: 1, tableData: parsed.tableData, tableSpans: parsed.tableSpans, tableHighlights: parsed.tableData.map((r: any[]) => r.map(() => false)), chartType: 'none' as const }];
-                  });
-                }
-              }
-            }}
-          >
-            {renderPreviewLines()}
-          </div>
-        </div>
       </div>
       </div>
       )}
@@ -3600,7 +3671,12 @@ const renderPreviewLines = () => {
                   onClick={async () => {
                     const pwd = prompt("전체 교구의 데이터를 초기화하려면 비밀번호를 입력해 주세요:");
                     if (pwd === "skmt0909!") {
-                      if (window.confirm("정말로 모든 교구와 협회의 주간보고 데이터를 초기화하시겠습니까? (이 작업은 되돌릴 수 없습니다)")) {
+                      const sDate = prompt("이번 주간보고 양력 날짜를 입력하세요 (예: 5월 4주차 또는 5월 27일):", appConfig?.solarDate || "");
+                      if (!sDate) return;
+                      const hDate = prompt("이번 주간보고 천일국 천력 날짜를 입력하세요 (예: 4월 11일):", appConfig?.heavenlyDate || "");
+                      if (!hDate) return;
+
+                      if (window.confirm(`[${sDate}] (천력 ${hDate}) 주간 취합 모드로 변경하며, 모든 교구와 협회의 주간보고 데이터를 초기화하시겠습니까? (이 작업은 되돌릴 수 없습니다)`)) {
                         const defaultData = { data: DEFAULT_REPORT, status: 'draft', lastSaved: null };
                         for (const p of Object.keys(PARISH_CHURCH_MAP)) {
                           for (const c of PARISH_CHURCH_MAP[p]) {
@@ -3613,6 +3689,12 @@ const renderPreviewLines = () => {
                             }
                           }
                         }
+                        const newConfig = { solarDate: sDate, heavenlyDate: hDate };
+                        try {
+                          await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
+                          setAppConfig(newConfig);
+                        } catch(e) {}
+
                         loadAllReportsStatus();
                         alert("전 교구 및 협회 데이터가 전체 초기화되었습니다.");
                       }
@@ -3626,85 +3708,56 @@ const renderPreviewLines = () => {
                 </button>
               </div>
 
-              {/* Parish Selector Tabs inside left panel */}
-              <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide snap-x whitespace-nowrap mb-4">
-                <button 
-                  onClick={() => setAdminActiveParish('전체')} 
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${adminActiveParish === '전체' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  전체보기
-                </button>
-                {Object.keys(PARISH_CHURCH_MAP).map(p => (
-                  <button 
-                    key={p}
-                    onClick={() => setAdminActiveParish(p)} 
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${adminActiveParish === p ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                  >
-                    {getDisplayParish(p)}
-                  </button>
-                ))}
-              </div>
+              {/* Parish Dashboard (Progress Bars) */}
+              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                {Object.keys(PARISH_CHURCH_MAP).map(p => {
+                  const churches = PARISH_CHURCH_MAP[p];
+                  // Exclude HQ (first item)
+                  const targetChurches = churches.slice(1);
+                  if (targetChurches.length === 0) return null;
 
-              {/* Church submission list */}
-              <div className="flex-1 overflow-y-auto pr-1 space-y-4">
-                {Object.keys(PARISH_CHURCH_MAP)
-                  .filter(p => adminActiveParish === '전체' || adminActiveParish === p)
-                  .map(p => {
-                    const churches = PARISH_CHURCH_MAP[p];
-                    const submittedCount = churches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
-                    const draftCount = churches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'draft').length;
-                    
-                    return (
-                      <div key={p} className="bg-slate-50 border border-slate-200 rounded-xl p-4 transition-all hover:shadow-sm">
-                        <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
-                          <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                            {getDisplayParish(p)}
-                          </h3>
-                          <div className="flex gap-2 text-xs font-semibold text-slate-500">
-                            <span className="text-emerald-600">제출: {submittedCount}</span>
-                            <span className="text-amber-600">작성중: {draftCount}</span>
-                            <span className="text-slate-400 font-medium">미작성: {churches.length - submittedCount - draftCount}</span>
-                          </div>
-                        </div>
+                  const submittedCount = targetChurches.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
+                  const completionRate = Math.round((submittedCount / targetChurches.length) * 100);
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {churches.map(c => {
-                            const currentStatus = adminReportStatusMap[`${p}_${c}`] || 'empty';
-                            const statusConfig = {
-                              submitted: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: '제출 완료', icon: '✅' },
-                              draft: { bg: 'bg-amber-50 text-amber-700 border-amber-200', label: '작성 중', icon: '📝' },
-                              empty: { bg: 'bg-slate-100 text-slate-400 border-slate-200', label: '미작성', icon: '⚪' }
-                            }[currentStatus];
-
-                            return (
-                              <div 
-                                key={c} 
-                                onClick={() => {
-                                  if (p === '협회') {
-                                    setActiveTab('association');
-                                    setParish('협회');
-                                    setChurch(c);
-                                  } else {
-                                    setActiveTab('report');
-                                    setParish(p);
-                                    setChurch(c);
-                                  }
-                                }}
-                                className={`px-2.5 py-2 border rounded-lg flex flex-col justify-between h-14 cursor-pointer hover:shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all ${statusConfig.bg}`}
-                              >
-                                <span className="text-xs font-bold truncate">{getDisplayChurch(c)}</span>
-                                <span className="text-[10px] font-black flex items-center gap-1 mt-0.5">
-                                  <span>{statusConfig.icon}</span>
-                                  {statusConfig.label}
-                                </span>
-                              </div>
-                            );
-                          })}
+                  return (
+                    <div 
+                      key={p} 
+                      onClick={() => {
+                        if (p === '협회') {
+                          setActiveTab('association');
+                          setParish('협회');
+                          setChurch(churches[0]);
+                        } else {
+                          setActiveTab('report');
+                          setParish(p);
+                          setChurch(churches[0]);
+                        }
+                      }}
+                      className="bg-white border border-slate-200 rounded-xl p-4 transition-all hover:shadow-md hover:border-purple-400 cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5 group-hover:text-purple-700 transition-colors">
+                          <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                          {getDisplayParish(p)}
+                        </h3>
+                        <div className="flex gap-2 text-xs font-semibold text-slate-500">
+                          <span className="text-emerald-600">제출: {submittedCount}</span>
+                          <span className="text-slate-400">/ {targetChurches.length}</span>
+                          <span className="text-purple-600 font-black ml-1 text-sm">{completionRate}%</span>
                         </div>
                       </div>
-                    );
-                  })}
+                      <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                        <div 
+                          className="bg-purple-500 h-2.5 rounded-full transition-all duration-700 ease-out"
+                          style={{ width: `${completionRate}%` }}
+                        ></div>
+                      </div>
+                      <div className="mt-2 text-[10px] text-slate-400 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                        교구본부 제외 취합률 (클릭 시 상세 이동)
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4308,6 +4361,63 @@ const renderPreviewLines = () => {
         </div>
       )}
 
+      {/* AI Smart Paste Modal */}
+      {showAiPasteModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-5 border-b border-slate-200 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-2xl">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Bot className="w-6 h-6 text-purple-100" /> AI 스마트 복붙 (자동정리)
+              </h2>
+              <button disabled={isAiProcessing} onClick={() => setShowAiPasteModal(false)} className="text-white/80 hover:bg-white/10 hover:text-white rounded-full p-2 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-4 bg-slate-50 flex-1 flex flex-col min-h-0">
+              <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-2 text-sm text-blue-800">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                <p>외부 문서(엑셀, 워드, 웹페이지)에서 표, 이미지, 텍스트를 그대로 복사하여 아래 영역에 붙여넣으세요. AI가 분석하여 주간보고 양식으로 완벽히 분리해 줍니다.</p>
+              </div>
+
+              <div 
+                ref={aiPasteRef}
+                contentEditable={!isAiProcessing}
+                className={`flex-1 min-h-[300px] max-h-[500px] overflow-y-auto bg-white border-2 border-dashed ${isAiProcessing ? 'border-slate-300 bg-slate-100 text-slate-400' : 'border-purple-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-100'} rounded-xl p-4 text-sm focus:outline-none transition-all cursor-text text-slate-800`}
+                data-placeholder="여기를 클릭하고 복사한 내용을 붙여넣으세요 (Ctrl+V)"
+                style={{ emptyCells: 'show' }}
+              />
+              <style>{`
+                [contenteditable][data-placeholder]:empty:before {
+                  content: attr(data-placeholder);
+                  color: #94a3b8;
+                  pointer-events: none;
+                  display: block;
+                }
+              `}</style>
+            </div>
+
+            <div className="p-5 border-t border-slate-200 flex justify-end gap-3 bg-white rounded-b-2xl">
+              <button 
+                disabled={isAiProcessing}
+                onClick={() => setShowAiPasteModal(false)}
+                className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+              >
+                취소
+              </button>
+              <button 
+                disabled={isAiProcessing}
+                onClick={handleAiPasteSubmit}
+                className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg font-bold flex items-center gap-2 shadow-md transition-all disabled:opacity-50"
+              >
+                {isAiProcessing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {isAiProcessing ? 'AI가 분석하고 정리하는 중...' : 'AI 마법으로 양식에 맞춰 넣기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Guide Modal */}
       {showGuideModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
@@ -4323,66 +4433,125 @@ const renderPreviewLines = () => {
             
             <div className="p-6 overflow-y-auto space-y-6 text-slate-700 bg-white">
               
-              <section>
-                <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
-                  <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                  다양한 단축키로 빠른 작성
-                </h3>
-                <ul className="list-disc list-inside space-y-2 text-sm ml-2">
-                  <li><kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Enter</kbd> : 같은 수준의 새 항목을 아래에 추가합니다.</li>
-                  <li><kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Tab</kbd> / <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Shift + Tab</kbd> : 항목의 수준(Level)을 내리거나 올립니다.</li>
-                  <li><kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">상/하 방향키</kbd> : 위/아래 항목으로 빠르게 이동합니다.</li>
-                </ul>
-              </section>
-
-              <section>
-                <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
-                  <span className="bg-emerald-100 text-emerald-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  표(Table)와 차트 기능
-                </h3>
-                <div className="bg-slate-50 p-4 rounded-lg text-sm space-y-3">
-                  <p><strong>편리한 붙여넣기:</strong> 엑셀이나 워드에 작성된 표를 복사하여 빈 항목에 붙여넣기 해보세요. <strong>자동으로 표가 생성</strong>됩니다.</p>
-                  <p><strong>수동 생성:</strong> 각 항목 우측 메뉴바에서 <TableIcon className="w-4 h-4 inline text-indigo-500" /> 버튼을 눌러 표를 직접 삽입할 수도 있습니다.</p>
-                  <p><strong>강조 효과:</strong> 표의 각 셀이나 행 좌측에 마우스를 올리면 나타나는 <Highlighter className="w-3.5 h-3.5 inline text-blue-500" /> 버튼을 눌러 파란색 볼드체로 강조하세요.</p>
-                  <p><strong>차트 변환:</strong> 표 데이터를 바탕으로 '막대/선/원형 차트'로 즉시 전환할 수 있습니다.</p>
+              {role === 'church' && (
+                <div className="space-y-6">
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                      간단하게 작성하고 모바일로 저장하세요
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-2">교회장님들은 복잡한 작업 없이 가장 기본적이고 핵심적인 내용만 기입해주시면 됩니다. 스마트폰이나 태블릿에서도 쉽게 입력할 수 있습니다.</p>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-emerald-100 text-emerald-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                      단축키 및 스마트 복붙(AI) 활용
+                    </h3>
+                    <ul className="list-disc list-inside space-y-2 text-sm ml-2 mb-2">
+                      <li><kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Enter</kbd> : 같은 수준의 새 항목을 아래에 추가</li>
+                      <li><kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Tab</kbd> / <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-xs">Shift + Tab</kbd> : 항목의 수준(Level) 변경</li>
+                    </ul>
+                    <div className="bg-purple-50 p-3 rounded text-sm text-purple-900 border border-purple-100 mt-3">
+                      <strong>🤖 AI 스마트 복붙 기능:</strong> 카카오톡이나 밴드에 올라온 텍스트를 그대로 복사해서 빈 칸에 붙여넣으면, AI가 자동으로 개조식으로 정리해줍니다!
+                    </div>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-amber-100 text-amber-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                      '제출 확정' 필수
+                    </h3>
+                    <div className="flex items-start gap-3 bg-amber-50 p-4 rounded-lg border border-amber-100">
+                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="text-sm text-slate-800 leading-relaxed">
+                        작성이 모두 끝났다면 화면 하단 또는 우측 하단의 <strong className="text-emerald-700">✅ 제출 확정</strong> 버튼을 반드시 눌러주세요. 그래야 교구 사무장님에게 보고서가 전달됩니다.
+                      </div>
+                    </div>
+                  </section>
                 </div>
-              </section>
+              )}
 
-              <section>
-                <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
-                  <span className="bg-amber-100 text-amber-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">3</span>
-                  복잡한 자료는 '사진 첨부'를 권장합니다.
-                </h3>
-                <div className="flex items-start gap-3 bg-amber-50 p-4 rounded-lg border border-amber-100">
-                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div className="text-sm text-slate-800 leading-relaxed">
-                    시스템 내에서 직접 구현하기 까다로운 <strong>복잡한 디자인의 표, 외부 그래프, 특수 기호</strong> 등은 무리해서 옮기지 마세요.<br /><br />
-                    해당 자료를 캡처하여 사진으로 저장한 뒤, 항목 우측의 <ImageIcon className="w-4 h-4 inline text-emerald-600" /> 아이콘을 클릭해 <strong>사진 형태로 첨부</strong>하시는 것이 훨씬 깔끔하고 편리합니다.
-                  </div>
+              {role === 'manager' && (
+                <div className="space-y-6">
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                      교회별 제출 현황 확인
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-2">상단의 '교회' 선택 박스 밑에 교구 내 모든 교회의 제출 현황이 표시됩니다. <strong className="text-emerald-600">초록색 점</strong>은 '제출 확정'된 교회이며, <strong className="text-slate-400">회색 점</strong>은 아직 작성하지 않은 교회입니다.</p>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-purple-100 text-purple-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                      교구 전체 AI 검토 및 수정
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-2">개별 교회가 올린 보고서를 확인하시면서 필요 시 직접 수정할 수 있습니다. 각 교회 보고서에서 필요 시 <strong className="text-purple-700">🤖 AI 문맥 검토</strong> 기능을 활용하여 오탈자나 어색한 문맥을 한 번에 정리할 수 있습니다.</p>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-emerald-100 text-emerald-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                      본부로 일괄 다운로드 및 보고
+                    </h3>
+                    <div className="flex items-start gap-3 bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                      <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <div className="text-sm text-slate-800 leading-relaxed">
+                        교회들의 취합이 끝났다면, 우측 하단의 <strong className="text-blue-700">📥 Word로 다운로드</strong> 버튼을 눌러주세요.<br/>
+                        현재 교구 내의 전체 교회 데이터가 <strong>단 1개의 파일(.docx)</strong>로 깔끔하게 병합되어 다운로드됩니다. 이 파일을 본부에 보고하시면 됩니다.
+                      </div>
+                    </div>
+                  </section>
                 </div>
-              </section>
+              )}
 
-              <section>
-                <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
-                  <span className="bg-purple-100 text-purple-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">4</span>
-                  AI 정리 및 워드 내보내기
-                </h3>
-                <p className="text-sm mb-2">하단의 <span className="font-semibold text-purple-700"><Bot className="w-4 h-4 inline mr-1" />AI 문맥 검토</span> 버튼을 눌러 오탈자를 점검하고, 우측 하단 <span className="font-semibold text-blue-700"><Download className="w-4 h-4 inline mr-1"/>Word로 다운로드</span> 버튼으로 깨끗하게 <code>.docx</code> 파일로 출력하세요.</p>
-              </section>
+              {role === 'admin' && (
+                <div className="space-y-6">
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-purple-100 text-purple-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                      전국 교구 모니터링 (관리자 콘솔)
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-2">상단의 <strong>[⚙️ 관리자 콘솔]</strong> 탭을 클릭하면 전국 모든 교구 및 협회 부서의 실시간 작성 및 제출율을 한 눈에 확인할 수 있습니다.</p>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-red-100 text-red-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                      매주 주간보고 사이클 갱신 (전체 초기화)
+                    </h3>
+                    <div className="flex items-start gap-3 bg-red-50 p-4 rounded-lg border border-red-100">
+                      <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                      <div className="text-sm text-slate-800 leading-relaxed">
+                        매주 새로운 보고를 취합받기 전, 반드시 <strong>[전체 데이터 초기화]</strong> 버튼을 눌러야 합니다.<br/><br/>
+                        초기화 시 <strong>양력 날짜와 천일국 천력 날짜</strong>를 기입하게 되며, 이 설정값은 시스템 전역에 등록되어 모든 사용자의 화면 상단에 표시됩니다.
+                      </div>
+                    </div>
+                  </section>
+                  <section>
+                    <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+                      <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                      공지사항 관리 및 데이터 백업
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-2"><strong>[공지 작성]</strong> 탭에서 전국 교회장/사무장에게 전달할 공지사항(PDF 첨부 가능)을 등록할 수 있으며, <strong>[추출]</strong> 버튼을 통해 언제든지 전체 데이터를 원본 JSON 형태로 백업하실 수 있습니다.</p>
+                  </section>
+                </div>
+              )}
 
-              <section className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg">
+              <section className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg mt-6">
                 <h3 className="font-bold text-base text-indigo-900 pb-2 mb-3 border-b border-indigo-200 flex items-center gap-2">
-                  <Check className="w-4 h-4 text-indigo-700" /> 주간보고 작성 표준 예시 (개조식)
+                  <Check className="w-4 h-4 text-indigo-700" /> 주간보고 세부항목 표준 배열 순서
                 </h3>
-                <div className="space-y-2 text-xs text-indigo-950 leading-relaxed font-medium">
-                  <p>1. 00교구 000선교회 집회 <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold ml-2">1단계 (L0)</span></p>
-                  <p className="ml-5">1) 일시: 2026년 00월 00일 0요일 오전 10시 <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold ml-2">2단계 (L1)</span></p>
-                  <p className="ml-5">2) 장소: 00교회 대성전</p>
-                  <p className="ml-5">3) 참석인원: 60명 (선교사 50명, 교구 공직자 6명, 청년스텝 4명)</p>
-                  <p className="ml-5">4) 내용: 000 교구장 환영사, 특강, 000 원장 격려사, 화동 프로그램</p>
-                  <div className="ml-5 flex items-center gap-2">
-                    5) 대표사진: <span className="text-indigo-700 text-xs flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5"/> (우측 사진 아이콘을 클릭하여 첨부)</span>
-                  </div>
+                <p className="text-xs text-indigo-800 mb-3 font-medium leading-relaxed">
+                  작성 시 아래 순서를 권장하며, 순서가 섞이더라도 <strong>'AI 스마트 복붙'</strong>이나 <strong>'AI 문맥 검토'</strong>를 사용하시면 알아서 표준 순서에 맞춰 깔끔하게 재배치됩니다. (※ 사진은 무조건 맨 뒤로 자동 이동)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs text-indigo-950 leading-relaxed font-medium">
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">1순위</span> 일시</p>
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">2순위</span> 장소</p>
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">3순위</span> 대상 및 참석인원</p>
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">4순위</span> 주제 및 목적</p>
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">5순위</span> 주요 내용</p>
+                  <p><span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded font-bold mr-1.5">6순위</span> 결과 및 향후 계획</p>
+                  <p className="sm:col-span-2 text-indigo-700 mt-1 flex items-center gap-1">
+                    <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold mr-1">마지막</span>
+                    사진 및 첨부자료 <ImageIcon className="w-3.5 h-3.5 inline"/> (항상 최하단 배치)
+                  </p>
                 </div>
               </section>
 
