@@ -257,7 +257,7 @@ export default function App() {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const aiPasteRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const [appConfig, setAppConfig] = useState<{solarDate: string, heavenlyDate: string} | null>(null);
+  const [appConfig, setAppConfig] = useState<{solarDate: string, heavenlyDate: string, deadline?: string} | null>(null);
   const [jsonFormat, setJsonFormat] = useState<'flat' | 'tree'>('flat');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -372,6 +372,7 @@ export default function App() {
   const [newWeekPassword, setNewWeekPassword] = useState('');
   const [newWeekSolarDate, setNewWeekSolarDate] = useState('');
   const [newWeekHeavenlyDate, setNewWeekHeavenlyDate] = useState('');
+  const [newWeekDeadline, setNewWeekDeadline] = useState('');
   const [newWeekPasswordError, setNewWeekPasswordError] = useState('');
   const [newWeekIsResetting, setNewWeekIsResetting] = useState(false);
 
@@ -3081,7 +3082,11 @@ const renderPreviewLines = () => {
       }
     }
 
-    const newConfig = { solarDate: newWeekSolarDate.trim(), heavenlyDate: newWeekHeavenlyDate.trim() };
+    const newConfig: { solarDate: string; heavenlyDate: string; deadline?: string } = {
+      solarDate: newWeekSolarDate.trim(),
+      heavenlyDate: newWeekHeavenlyDate.trim(),
+      ...(newWeekDeadline.trim() ? { deadline: newWeekDeadline.trim() } : {})
+    };
     try {
       await saveDbData('SYSTEM_CONFIG', { id: 'SYSTEM_CONFIG', data: newConfig, updated_at: new Date().toISOString() });
       setAppConfig(newConfig);
@@ -3180,6 +3185,11 @@ const renderPreviewLines = () => {
           {appConfig && (
             <span className="text-indigo-600 font-extrabold mr-1 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 whitespace-nowrap hidden sm:inline-block">
               {appConfig.solarDate} (천력 {appConfig.heavenlyDate}) 취합 중...
+            </span>
+          )}
+          {appConfig?.deadline && (
+            <span className="hidden sm:inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded-md text-[11px] font-bold whitespace-nowrap">
+              <Clock className="w-3 h-3" /> 마감: {appConfig.deadline}
             </span>
           )}
           {/* 전국 제출률 뱃지 (admin / manager) */}
@@ -3373,7 +3383,10 @@ const renderPreviewLines = () => {
                     </div>
                     {/* Card body */}
                     <div className="p-4">
-                      <p className="text-[11px] text-slate-400 mb-1.5">{new Date(notice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                      <div className="flex items-center justify-between mb-1.5 gap-1">
+                        <p className="text-[11px] text-slate-400">{new Date(notice.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        <p className="text-[10px] text-slate-300">{getRelativeTime(notice.created_at)}</p>
+                      </div>
                       <h3 className={`font-bold text-base leading-snug mb-2 group-hover:text-blue-600 transition-colors line-clamp-2 ${isUnread ? 'text-slate-900' : 'text-slate-700'}`}>{notice.title}</h3>
                       {excerpt && <p className="text-xs text-slate-500 leading-relaxed line-clamp-3">{excerpt}</p>}
                     </div>
@@ -5830,6 +5843,16 @@ const renderPreviewLines = () => {
                   onChange={e => { setNewWeekHeavenlyDate(e.target.value); setNewWeekPasswordError(''); }}
                 />
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">제출 마감일 <span className="text-slate-400 font-normal">(선택)</span></label>
+              <input
+                type="text"
+                placeholder="예: 목요일 오후 6시"
+                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
+                value={newWeekDeadline}
+                onChange={e => setNewWeekDeadline(e.target.value)}
+              />
             </div>
 
             {newWeekPasswordError && (
