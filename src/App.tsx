@@ -430,6 +430,13 @@ export default function App() {
     } catch { return dateStr; }
   };
 
+  const getCurrentWeekSuggestion = (): string => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const weekOfMonth = Math.ceil(now.getDate() / 7);
+    return `${month}월 ${weekOfMonth}주차`;
+  };
+
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedField(field);
@@ -1199,7 +1206,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `전국교구_및_협회_종합_업무보고_${new Date().toISOString().split('T')[0]}.docx`;
+      a.download = `전국교구_및_협회_종합_업무보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -2781,7 +2788,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${getDisplayParish(parish)}_주간보고_${new Date().toISOString().split('T')[0]}.docx`;
+    a.download = `${getDisplayParish(parish)}_주간보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
     a.click();
     URL.revokeObjectURL(url);
     
@@ -3024,7 +3031,7 @@ const renderPreviewLines = () => {
   const resetAllData = async () => {
     // 모달을 열어 사용자가 입력하도록 유도 (prompt/confirm 대신)
     setNewWeekPassword('');
-    setNewWeekSolarDate(appConfig?.solarDate || '');
+    setNewWeekSolarDate(appConfig?.solarDate || getCurrentWeekSuggestion());
     setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
     setNewWeekPasswordError('');
     setShowNewWeekModal(true);
@@ -3076,7 +3083,7 @@ const renderPreviewLines = () => {
   };
 
   if (!role) {
-    return <RoleSelection onSelectRole={handleSelectRole} parishChurchMap={PARISH_CHURCH_MAP} />;
+    return <RoleSelection onSelectRole={handleSelectRole} parishChurchMap={PARISH_CHURCH_MAP} appConfig={appConfig} />;
   }
 
   return (
@@ -4261,7 +4268,7 @@ const renderPreviewLines = () => {
                   <button
                     onClick={() => {
                       setNewWeekPassword('');
-                      setNewWeekSolarDate(appConfig?.solarDate || '');
+                      setNewWeekSolarDate(appConfig?.solarDate || getCurrentWeekSuggestion());
                       setNewWeekHeavenlyDate(appConfig?.heavenlyDate || '');
                       setNewWeekPasswordError('');
                       setShowNewWeekModal(true);

@@ -6,9 +6,10 @@ export type Role = 'church' | 'manager' | 'admin' | null;
 interface RoleSelectionProps {
   onSelectRole: (role: Role, data?: any) => void;
   parishChurchMap: Record<string, string[]>;
+  appConfig?: { solarDate: string; heavenlyDate: string } | null;
 }
 
-export default function RoleSelection({ onSelectRole, parishChurchMap }: RoleSelectionProps) {
+export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig }: RoleSelectionProps) {
   const [selectedRole, setSelectedRole] = useState<Role>(null);
   const [parish, setParish] = useState('천원특별');
   const [church, setChurch] = useState(parishChurchMap['천원특별'][0]);
@@ -62,6 +63,12 @@ export default function RoleSelection({ onSelectRole, parishChurchMap }: RoleSel
         <div className="bg-blue-800 p-8 text-center">
           <h1 className="text-2xl font-bold text-white mb-2">주간업무보고 시스템</h1>
           <p className="text-blue-200 text-sm">접속하실 모드를 선택해 주세요</p>
+          {appConfig && (
+            <div className="mt-3 inline-flex items-center gap-1.5 bg-blue-700/60 text-blue-100 text-xs font-semibold px-3 py-1.5 rounded-full border border-blue-600/50">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              {appConfig.solarDate} (천력 {appConfig.heavenlyDate}) 취합 중
+            </div>
+          )}
         </div>
         
         <div className="p-6 space-y-6">
