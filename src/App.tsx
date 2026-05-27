@@ -3492,11 +3492,46 @@ const renderPreviewLines = () => {
                   </span>
                 ) : null}
               </h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
                   <Check className="w-4 h-4" /> AI 준비됨
                 </span>
-                <button 
+                {/* 보고서 전체 텍스트 복사 */}
+                {activeTab !== 'notice_write' && (
+                  <button
+                    onClick={() => {
+                      const lines: string[] = [];
+                      let l0Cnt = 0;
+                      const counters = [0,0,0,0,0,0];
+                      reportData.forEach(item => {
+                        if (!item.text?.trim() && !item.tableData) return;
+                        if (item.level === 0) {
+                          l0Cnt++; counters[0]=l0Cnt; counters[1]=0; counters[2]=0;
+                          lines.push(`\n${toRoman(l0Cnt)}. ${item.text}`);
+                        } else if (item.level === 1) {
+                          counters[1]++;
+                          lines.push(`  ${counters[1]}. ${item.text}`);
+                        } else if (item.level === 2) {
+                          counters[2]++;
+                          lines.push(`    ${counters[2]}) ${item.text}`);
+                        } else {
+                          lines.push(`      - ${item.text}`);
+                        }
+                        if (item.tableData) {
+                          item.tableData.forEach((row: string[]) => lines.push(`    | ${row.join(' | ')} |`));
+                        }
+                      });
+                      navigator.clipboard.writeText(lines.join('\n').trim());
+                      toast.success('보고서 전체 텍스트가 복사되었습니다.');
+                    }}
+                    className="flex items-center gap-1.5 text-sm bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md transition-colors shadow-sm"
+                    title="보고서 전체 내용을 텍스트로 복사"
+                  >
+                    <Copy className="w-4 h-4" />
+                    전체 복사
+                  </button>
+                )}
+                <button
                   onClick={() => setShowJsonModal(true)}
                   className="flex items-center gap-2 text-sm bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md transition-colors shadow-sm"
                   title="데이터 구조 확인"
