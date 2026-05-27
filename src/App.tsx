@@ -756,14 +756,31 @@ export default function App() {
     }
   }, [activeTab, parish, church, status, reportData]);
 
+  // 관리자 콘솔 클라우드 강제 새로고침 (supabase에서 최신 데이터 재조회)
+  const refreshFromCloud = useCallback(async () => {
+    const allKeys = Object.entries(PARISH_CHURCH_MAP).flatMap(([p, cs]) =>
+      (cs as string[]).map(c => ({ p, c, key: `report_${p}_${c}` }))
+    );
+    await Promise.all(allKeys.map(async ({ p, c, key }) => {
+      try {
+        const data = await fetchDbData(`${p}_${c}`);
+        if (data) {
+          localStorage.setItem(key, JSON.stringify(data));
+          sessionStorage.setItem(key, JSON.stringify(data));
+        }
+      } catch {}
+    }));
+    loadAllReportsStatus();
+  }, [parish, church, status, reportData, lastSaved]);
+
   // 관리자 콘솔 자동 새로고침
   useEffect(() => {
     if (!adminAutoRefresh || activeTab !== 'admin_console') return;
     const interval = setInterval(() => {
-      loadAllReportsStatus();
+      refreshFromCloud();
     }, 60000); // 60초마다
     return () => clearInterval(interval);
-  }, [adminAutoRefresh, activeTab]);
+  }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const startAdminAiReview = async () => {
     setIsAdminCheckingAI(true);
@@ -4167,9 +4184,9 @@ const renderPreviewLines = () => {
                 </div>
                 <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                   <button
-                    onClick={() => loadAllReportsStatus()}
+                    onClick={() => refreshFromCloud()}
                     className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
-                    title="현황 새로고침"
+                    title="클라우드에서 최신 데이터 새로고침"
                   >
                     <RefreshCw className="w-3 h-3" />
                   </button>
