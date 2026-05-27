@@ -699,7 +699,7 @@ export default function App() {
       }
 
       if (allAdminPayload.length === 0) {
-        alert("취합된 주간보고 내용이 없습니다. 각 교구 및 부서의 보고서 작성 현황을 확인해 주세요.");
+        toast.warning("취합된 주간보고 내용이 없습니다. 각 교구 및 부서의 보고서 작성 현황을 확인해 주세요.");
         setIsAdminCheckingAI(false);
         return;
       }
@@ -1059,7 +1059,7 @@ export default function App() {
       }
 
       if (allChildren.length <= 1) {
-        alert("취합할 보고서 데이터가 존재하지 않습니다.");
+        toast.warning("취합할 보고서 데이터가 존재하지 않습니다.");
         setAdminCompilationProgress("");
         return;
       }
@@ -1090,7 +1090,7 @@ export default function App() {
       toast.success("종합 주간업무보고 워드 문서 다운로드가 완료되었습니다!");
     } catch(err: any) {
       console.error(err);
-      alert(`문서 생성 중 오류 발생: ${err.message}`);
+      toast.error(`문서 생성 중 오류 발생: ${err.message}`);
       setAdminCompilationProgress("");
     }
   };
@@ -2172,7 +2172,7 @@ export default function App() {
       aiPasteRef.current.innerHTML = '';
     } catch (e: any) {
       console.error(e);
-      alert("AI 변환에 실패했습니다: " + e.message);
+      toast.error("AI 변환에 실패했습니다: " + e.message);
     } finally {
       setIsAiProcessing(false);
     }
@@ -2626,7 +2626,7 @@ export default function App() {
     }
 
     if (allChildren.length <= 1) {
-      alert("출력할 교구 데이터가 없습니다. 문서를 작성해주세요.");
+      toast.warning("출력할 교구 데이터가 없습니다. 문서를 작성해주세요.");
       return;
     }
 
@@ -3837,11 +3837,18 @@ const renderPreviewLines = () => {
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) { importDocumentFile(f); e.target.value = ''; } }}
               />
+              <button
+                onClick={() => setShowAiPasteModal(true)}
+                className="flex items-center justify-center gap-1.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 text-violet-700 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                title="AI가 복사한 내용을 자동으로 양식에 맞게 변환"
+              >
+                <Sparkles className="w-4 h-4" /> AI 변환
+              </button>
             </div>
           </div>
           
           <div className="pt-4 border-t border-slate-200 mt-auto shrink-0 space-y-2">
-            <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1">
+            <div className="flex items-center justify-center gap-3 text-[10px] font-semibold text-slate-400 select-none pb-2 border-b border-slate-100 mb-1 flex-wrap">
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Tab</kbd>들여쓰기</span>
               <span className="text-slate-200">|</span>
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Shift+Tab</kbd>내어쓰기</span>
@@ -3849,6 +3856,8 @@ const renderPreviewLines = () => {
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Enter</kbd>항목 추가</span>
               <span className="text-slate-200">|</span>
               <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">↑/↓</kbd>이동</span>
+              <span className="text-slate-200">|</span>
+              <span><kbd className="font-mono bg-slate-50 border border-slate-200 px-1 py-0.2 rounded text-slate-500 mr-0.5 shadow-sm">Ctrl+S</kbd>저장</span>
             </div>
             <div className="flex items-center justify-between px-1 pb-1">
               <div className="flex flex-col gap-0.5">
