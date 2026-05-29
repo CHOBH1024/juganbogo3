@@ -12,7 +12,7 @@ export async function initBrowserAI(onProgress?: (pct: number) => void): Promise
   env.allowLocalModels = false;
   env.useBrowserCache = true;
 
-  _pipe = await (pipeline as any)('text-generation', 'Xenova/Qwen2.5-0.5B-Instruct', {
+  _pipe = await (pipeline as any)('text-generation', 'onnx-community/Qwen2.5-0.5B-Instruct', {
     dtype: 'q4',
     progress_callback: (info: any) => {
       if (info.status === 'progress' && typeof info.progress === 'number') {
