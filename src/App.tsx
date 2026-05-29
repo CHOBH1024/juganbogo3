@@ -245,7 +245,7 @@ export default function App() {
   const [isBrowserAiLoading, setIsBrowserAiLoading] = useState(false);
   const [browserAiProgress, setBrowserAiProgress] = useState(0);
 
-  // 로컬 서버 자동 감지 (마운트 시 ping)
+  // 로컬 서버 자동 감지 (마운트 시 ping — 실패 시 isLocalMode 리셋)
   useEffect(() => {
     const detect = async () => {
       try {
@@ -253,8 +253,12 @@ export default function App() {
         if (res.ok) {
           localStorage.setItem('IS_LOCAL_MODE', 'true');
           setIsLocalMode(true);
+          return;
         }
       } catch {}
+      // 서버 응답 없으면 로컬 모드 해제
+      localStorage.removeItem('IS_LOCAL_MODE');
+      setIsLocalMode(false);
     };
     detect();
   }, []);
