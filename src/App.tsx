@@ -15,6 +15,22 @@ const getLocalServerUrl = () => {
   return 'http://localhost:5000';
 };
 
+// ngrok 터널 경유 시 브라우저 경고창 우회 헤더 자동 추가
+const localFetch = (url: string, options: RequestInit = {}): Promise<Response> => {
+  const serverUrl = getLocalServerUrl();
+  const isNgrok = serverUrl.includes('ngrok');
+  if (isNgrok) {
+    options = {
+      ...options,
+      headers: {
+        'ngrok-skip-browser-warning': 'true',
+        ...(options.headers || {}),
+      },
+    };
+  }
+  return fetch(url, options);
+};
+
 // ── 토스트 알림 시스템 ──────────────────────────────────────────
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 interface Toast { id: number; message: string; type: ToastType; }
@@ -33,7 +49,7 @@ const fetchDbData = async (id: string) => {
   if (isLocal) {
     try {
       const serverUrl = getLocalServerUrl();
-      const res = await fetch(`${serverUrl}/api/load-data/${id}`);
+      const res = await localFetch(`${serverUrl}/api/load-data/${id}`);
       if (res.ok) {
         return await res.json();
       }
@@ -59,7 +75,7 @@ const saveDbData = async (id: string, payload: any) => {
   if (isLocal) {
     try {
       const serverUrl = getLocalServerUrl();
-      await fetch(`${serverUrl}/api/save-data`, {
+      await localFetch(`${serverUrl}/api/save-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, payload })
@@ -228,7 +244,7 @@ export default function App() {
   useEffect(() => {
     const detect = async () => {
       try {
-        const res = await fetch(`${getLocalServerUrl()}/api/ping`, { signal: AbortSignal.timeout(2000) });
+        const res = await localFetch(`${getLocalServerUrl()}/api/ping`, { signal: AbortSignal.timeout(2000) });
         if (res.ok) {
           localStorage.setItem('IS_LOCAL_MODE', 'true');
           setIsLocalMode(true);
@@ -543,7 +559,7 @@ export default function App() {
       if (isLocalMode) {
         const filename = `notice_${Date.now()}.pdf`;
         const serverUrl = getLocalServerUrl();
-        const res = await fetch(`${serverUrl}/api/upload-image`, {
+        const res = await localFetch(`${serverUrl}/api/upload-image`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/pdf',
@@ -595,7 +611,7 @@ export default function App() {
       if (isLocalMode) {
         const filename = `notice_pdf_${Date.now()}.pdf`;
         const serverUrl = getLocalServerUrl();
-        const res = await fetch(`${serverUrl}/api/upload-image`, {
+        const res = await localFetch(`${serverUrl}/api/upload-image`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/pdf',
@@ -710,7 +726,7 @@ export default function App() {
     if (isLocalMode) {
       try {
         const serverUrl = getLocalServerUrl();
-        const res = await fetch(`${serverUrl}/api/load-data/${key}`);
+        const res = await localFetch(`${serverUrl}/api/load-data/${key}`);
         if (res.ok) return await res.json();
       } catch(e){}
     }
@@ -885,7 +901,7 @@ export default function App() {
 ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 
       const serverUrl = getLocalServerUrl();
-      const res = await fetch(`${serverUrl}/api/claude-chat`, {
+      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
@@ -1542,7 +1558,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
           const filename = `${parish}_${church}_${Date.now()}.jpg`.replace(/\s+/g, '_');
           const serverUrl = getLocalServerUrl();
           
-          const res = await fetch(`${serverUrl}/api/upload-image`, {
+          const res = await localFetch(`${serverUrl}/api/upload-image`, {
             method: 'POST',
             headers: {
               'Content-Type': 'image/jpeg',
@@ -2287,7 +2303,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
       let text = "";
       if (isLocalMode) {
         const serverUrl = getLocalServerUrl();
-        const res = await fetch(`${serverUrl}/api/ollama-chat`, {
+        const res = await localFetch(`${serverUrl}/api/ollama-chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2417,7 +2433,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 ${reportText}`;
 
       const serverUrl = getLocalServerUrl();
-      const res = await fetch(`${serverUrl}/api/claude-chat`, {
+      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
@@ -4930,6 +4946,29 @@ const renderPreviewLines = () => {
 
               {/* Drive status + guide */}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                {/* ngrok / 외부 서버 URL 설정 */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    defaultValue={localStorage.getItem('LOCAL_SERVER_URL') || ''}
+                    placeholder="https://xxxx.ngrok-free.app (외부 AI 서버 URL)"
+                    className="flex-1 min-w-0 text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-400"
+                    onBlur={e => {
+                      const val = e.target.value.trim().replace(/\/$/, '');
+                      if (val) {
+                        localStorage.setItem('LOCAL_SERVER_URL', val);
+                        localStorage.setItem('IS_LOCAL_MODE', 'true');
+                        setIsLocalMode(true);
+                        toast.success('서버 URL이 저장되었습니다.');
+                      } else {
+                        localStorage.removeItem('LOCAL_SERVER_URL');
+                      }
+                    }}
+                  />
+                  <span className={`text-[10px] font-bold shrink-0 ${isLocalMode ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {isLocalMode ? '🟢 AI 켜짐' : '⚪ AI 꺼짐'}
+                  </span>
+                </div>
                 <div className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border text-xs ${
                   driveStatus?.authenticated ? 'bg-emerald-50 border-emerald-200' :
                   driveStatus?.configured ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
