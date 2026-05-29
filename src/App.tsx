@@ -290,7 +290,7 @@ export default function App() {
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
-    openPasswordModal('공지 작성 모드', (pwd) => pwd === 'skmt0909!', () => {
+    openPasswordModal('공지 작성 모드', (pwd) => pwd === 'chongmu2027', () => {
       setActiveTab('notice_write');
       setReportData([]);
       setNoticeTitle('');
@@ -497,7 +497,7 @@ export default function App() {
   }, []);
 
   const handleAdminLogin = () => {
-    openPasswordModal('관리자 로그인', (pwd) => pwd === 'skmt0909!', () => {
+    openPasswordModal('관리자 로그인', (pwd) => pwd === 'chongmu2027', () => {
       setIsAdmin(true);
       toast.success('🔐 관리자로 로그인되었습니다.');
     });
@@ -2061,7 +2061,7 @@ export default function App() {
 
   const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean, skipPasswordCheck = false) => {
     if (requirePassword && !skipPasswordCheck) {
-      openPasswordModal('초기화 비밀번호 확인', (pwd) => pwd === 'skmt0909!', () => {
+      openPasswordModal('초기화 비밀번호 확인', (pwd) => pwd === 'chongmu2027', () => {
         executeReset(targets, false, true);
       });
       return;
@@ -3027,7 +3027,7 @@ const renderPreviewLines = () => {
       return;
     }
 
-    openPasswordModal(`[${label}] 데이터 초기화`, (pwd) => pwd === 'skmt0909!', async () => {
+    openPasswordModal(`[${label}] 데이터 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
       for (const p of targetParishes) {
         for (const c of PARISH_CHURCH_MAP[p]) {
@@ -3103,7 +3103,7 @@ const renderPreviewLines = () => {
   };
 
   const executeNewWeekReset = async () => {
-    if (newWeekPassword !== 'skmt0909!') {
+    if (newWeekPassword !== 'chongmu2027') {
       setNewWeekPasswordError('비밀번호가 일치하지 않습니다.');
       return;
     }
@@ -3317,7 +3317,7 @@ const renderPreviewLines = () => {
                 <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
               ) : (
                 <button
-                  onClick={() => openPasswordModal('공지 전체 삭제', (pwd) => pwd === 'skmt0909!', async () => {
+                  onClick={() => openPasswordModal('공지 전체 삭제', (pwd) => pwd === 'chongmu2027', async () => {
                     await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
                     setNotices([]);
                     setActiveNotice(null);
@@ -3780,7 +3780,7 @@ const renderPreviewLines = () => {
                   {role === 'manager' && (
                     <button
                       onClick={() => {
-                        openPasswordModal('교구 Word 내보내기', (pwd) => pwd === 'skmt0909!' || pwd === 'samu', (pwd) => {
+                        openPasswordModal('교구 Word 내보내기', (pwd) => pwd === 'chongmu2027' || pwd === 'samu', (pwd) => {
                           exportToWord();
                         });
                       }}
@@ -4638,7 +4638,7 @@ const renderPreviewLines = () => {
                             <button
                               onClick={() => {
                                 // 해당 교구로 전환하여 Word 내보내기
-                                openPasswordModal(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'skmt0909!' || pwd === 'samu', () => {
+                                openPasswordModal(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
                                   setActiveTab('report');
                                   setParish(p);
                                   setChurch(PARISH_CHURCH_MAP[p][0]);
@@ -4694,7 +4694,7 @@ const renderPreviewLines = () => {
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      openPasswordModal(`[${c}] 초기화`, (pwd) => pwd === 'skmt0909!', async () => {
+                                      openPasswordModal(`[${c}] 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
                                         const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
                                         const key = `report_${p}_${c}`;
                                         localStorage.setItem(key, JSON.stringify(defaultData));
@@ -5963,7 +5963,7 @@ const renderPreviewLines = () => {
               <input
                 type="password"
                 placeholder="비밀번호 입력"
-                className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 outline-none transition-all ${newWeekPasswordError && newWeekPassword !== 'skmt0909!' ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-red-200 focus:border-red-400'}`}
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 outline-none transition-all ${newWeekPasswordError && newWeekPassword !== 'chongmu2027' ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-red-200 focus:border-red-400'}`}
                 value={newWeekPassword}
                 onChange={e => { setNewWeekPassword(e.target.value); setNewWeekPasswordError(''); }}
                 autoFocus
@@ -6009,7 +6009,7 @@ const renderPreviewLines = () => {
               </p>
             )}
 
-            {newWeekSolarDate && newWeekHeavenlyDate && newWeekPassword === 'skmt0909!' && (
+            {newWeekSolarDate && newWeekHeavenlyDate && newWeekPassword === 'chongmu2027' && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 leading-relaxed">
                 <span className="font-bold text-slate-800">[{newWeekSolarDate.trim()}]</span> (천력 {newWeekHeavenlyDate.trim()}) 주간보고를 새로 시작합니다.<br/>
                 전체 교구 및 협회의 보고서가 초기화됩니다.

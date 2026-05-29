@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Users, Shield, ArrowRight, CheckCircle } from 'lucide-react';
+import { User, Users, Shield, ArrowRight, CheckCircle, Lock } from 'lucide-react';
 
 export type Role = 'church' | 'manager' | 'admin' | null;
 
@@ -9,61 +9,49 @@ interface RoleSelectionProps {
   appConfig?: { solarDate: string; heavenlyDate: string; deadline?: string } | null;
 }
 
-const MANAGER_CODE_MAP: Record<string, string> = {
-  'seoulbukbu': '서울북부',
-  'seoulnambu': '서울남부',
-  'gyeonggibukbu': '경기북부',
-  'incheongyeonggiseobu': '인천경기서부',
-  'gyeongginambu': '경기남부',
-  'gangwon': '강원',
-  'daejeonchungnam': '대전충남',
-  'chungbuk': '충북',
-  'jeonbuk': '전북',
-  'gwangjujeonnamjeju': '광주전남제주',
-  'daegugyeongbuk': '대구경북',
-  'gyeongnam': '경남',
-  'busanulsan': '부산울산',
-  'cheonwonteukbyeol': '천원특별',
-  'hyeophoe': '협회'
-};
-
 export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig }: RoleSelectionProps) {
   const [selectedRole, setSelectedRole] = useState<Role>(null);
 
   const savedParish = localStorage.getItem('APP_PARISH') || '천원특별';
   const savedChurch = localStorage.getItem('APP_CHURCH') || parishChurchMap['천원특별'][0];
-  const savedManagerCode = localStorage.getItem('APP_MANAGER_CODE') || '';
-  const savedManagerParish = MANAGER_CODE_MAP[savedManagerCode] || '';
+  const savedManagerParish = localStorage.getItem('APP_MANAGER_PARISH') || '';
 
   const [parish, setParish] = useState(() => {
     const p = savedParish;
     return parishChurchMap[p] ? p : '천원특별';
   });
   const [church, setChurch] = useState(() => {
-    const p = savedParish;
-    const validParish = parishChurchMap[p] ? p : '천원특별';
+    const validParish = parishChurchMap[savedParish] ? savedParish : '천원특별';
     return parishChurchMap[validParish].includes(savedChurch) ? savedChurch : parishChurchMap[validParish][0];
   });
-  const [managerCode, setManagerCode] = useState(savedManagerCode);
+
+  // 사무장 모드 상태
+  const [managerPwd, setManagerPwd] = useState('');
+  const [managerPwdVerified, setManagerPwdVerified] = useState(false);
+  const [managerParish, setManagerParish] = useState(savedManagerParish || Object.keys(parishChurchMap)[0]);
+
+  // 관리자 모드 상태
   const [adminCode, setAdminCode] = useState('');
 
   const handleStartChurch = () => {
     onSelectRole('church', { parish, church });
   };
 
-  const handleStartManager = (code?: string) => {
-    const codeToUse = (code ?? managerCode).toLowerCase();
-    const matchedParish = MANAGER_CODE_MAP[codeToUse];
-    if (matchedParish) {
-      localStorage.setItem('APP_MANAGER_CODE', codeToUse);
-      onSelectRole('manager', { parish: matchedParish });
+  const handleVerifyManagerPwd = () => {
+    if (managerPwd === 'samu2027') {
+      setManagerPwdVerified(true);
     } else {
-      alert('올바르지 않은 사무장 교구 코드입니다.');
+      alert('사무장 비밀번호가 일치하지 않습니다.');
     }
   };
 
+  const handleStartManager = () => {
+    localStorage.setItem('APP_MANAGER_PARISH', managerParish);
+    onSelectRole('manager', { parish: managerParish });
+  };
+
   const handleStartAdmin = () => {
-    if (adminCode === 'skmt0909!') {
+    if (adminCode === 'chongmu2027') {
       onSelectRole('admin');
     } else {
       alert('비밀번호가 일치하지 않습니다.');
@@ -84,7 +72,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
           )}
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-4">
           {/* 교회장 모드 */}
           <div
             className={`border rounded-xl p-4 cursor-pointer transition-all ${selectedRole === 'church' ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}
@@ -140,7 +128,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
           {/* 사무장 모드 */}
           <div
             className={`border rounded-xl p-4 cursor-pointer transition-all ${selectedRole === 'manager' ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}
-            onClick={() => setSelectedRole('manager')}
+            onClick={() => { setSelectedRole('manager'); setManagerPwdVerified(false); setManagerPwd(''); }}
           >
             <div className="flex items-center gap-3 mb-2">
               <div className={`p-2 rounded-lg ${selectedRole === 'manager' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
@@ -154,43 +142,55 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
                 <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-600 px-2 py-0.5 rounded-full font-semibold">{savedManagerParish}</span>
               )}
             </div>
+
             {selectedRole === 'manager' && (
               <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-top-2">
-                {savedManagerParish ? (
-                  <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2.5">
-                    <CheckCircle className="w-4 h-4 text-indigo-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-indigo-700">저장된 교구: {savedManagerParish}</p>
-                      <p className="text-[10px] text-indigo-500">아래 버튼으로 바로 입장하거나, 코드를 변경하세요</p>
+                {!managerPwdVerified ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">사무장 비밀번호</label>
+                      <input
+                        type="password"
+                        placeholder="비밀번호 입력"
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={managerPwd}
+                        onChange={(e) => setManagerPwd(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleVerifyManagerPwd()}
+                        autoFocus
+                      />
                     </div>
-                  </div>
-                ) : null}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">교구 영문 코드</label>
-                  <input
-                    type="text"
-                    placeholder="예: seoulbukbu"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={managerCode}
-                    onChange={(e) => setManagerCode(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleStartManager()}
-                  />
-                </div>
-                {savedManagerParish && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleStartManager(savedManagerCode); }}
-                    className="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-800 border border-indigo-300 font-bold py-2 rounded-lg flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    {savedManagerParish} 바로 입장
-                  </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleVerifyManagerPwd(); }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2"
+                    >
+                      <Lock className="w-4 h-4" /> 인증하기
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                      <CheckCircle className="w-4 h-4 text-indigo-500 shrink-0" />
+                      <p className="text-xs font-bold text-indigo-700">인증 완료 — 담당 교구를 선택하세요</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">교구 선택</label>
+                      <select
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={managerParish}
+                        onChange={(e) => setManagerParish(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {Object.keys(parishChurchMap).map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleStartManager(); }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2"
+                    >
+                      입장하기 <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleStartManager(); }}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2"
-                >
-                  인증하기 <ArrowRight className="w-4 h-4" />
-                </button>
               </div>
             )}
           </div>
@@ -220,6 +220,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
                     value={adminCode}
                     onChange={(e) => setAdminCode(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleStartAdmin()}
+                    autoFocus
                   />
                 </div>
                 <button
