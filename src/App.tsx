@@ -763,10 +763,11 @@ export default function App() {
   };
 
   const deleteNotice = async (id: string) => {
+    if (id === 'guide-001') { toast.warning('작성 가이드는 삭제할 수 없습니다.'); return; }
     try {
       const newNotices = notices.filter(n => n.id !== id);
       await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: newNotices, updated_at: new Date().toISOString() });
-      setNotices(newNotices);
+      setNotices(prev => [DEFAULT_GUIDE_NOTICE, ...newNotices.filter((n: any) => n.id !== 'guide-001')]);
       if (activeNotice?.id === id) setActiveNotice(null);
       toast.success('공지사항이 삭제되었습니다.');
     } catch (e) {
@@ -2220,6 +2221,26 @@ ${reportText}`;
   };
 
   const handleSave = async (isSubmit: boolean = false) => {
+    if (isSubmit && status !== 'submitted') {
+      const cleanItems = reportData.filter(i => i.text?.trim() || i.image || i.tableData);
+      const l0Items = cleanItems.filter(i => i.level === 0);
+      const emptyL0 = l0Items.filter(l0 => {
+        const idx = reportData.indexOf(l0);
+        const children = reportData.slice(idx + 1).takeWhile ? [] : (() => {
+          const res = [];
+          for (let j = idx + 1; j < reportData.length; j++) {
+            if (reportData[j].level === 0) break;
+            if (reportData[j].text?.trim()) res.push(reportData[j]);
+          }
+          return res;
+        })();
+        return children.length === 0;
+      });
+      if (emptyL0.length > 0) {
+        const names = emptyL0.map(i => i.text || '(빈 항목)').join(', ');
+        toast.warning(`빈 섹션이 있습니다: ${names}`);
+      }
+    }
     setIsSaving(true);
     const key = `report_${parish}_${church}`;
     const timestamp = new Date().toLocaleString('ko-KR');
