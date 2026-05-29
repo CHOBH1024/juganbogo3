@@ -344,12 +344,11 @@ export default function App() {
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
-    withAdminBypass('공지 작성 모드', (pwd) => pwd === 'chongmu2027', () => {
-      setActiveTab('notice_write');
-      setReportData([]);
-      setNoticeTitle('');
-      setNoticePdfUrl(null);
-    });
+    // 관리자는 이미 인증됨 — 비번 불필요
+    setActiveTab('notice_write');
+    setReportData([]);
+    setNoticeTitle('');
+    setNoticePdfUrl(null);
   };
 
   const [notices, setNotices] = useState<any[]>([]);
@@ -540,11 +539,53 @@ export default function App() {
     }
   };
 
+  const DEFAULT_GUIDE_NOTICE = {
+    id: 'guide-001',
+    title: '📋 주간업무보고 작성 가이드',
+    category: '가이드',
+    pinned: true,
+    pdfUrl: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    data: [
+      { id: 1, text: '보고서 계층 구조 (L0 / L1 / L2)', level: 0 },
+      { id: 2, text: 'L0 대항목 — 로마 숫자 제목', level: 1 },
+      { id: 3, text: '예) I. 전주보고  /  II. 금주계획  /  III. 기타사항', level: 2 },
+      { id: 4, text: 'L1 중항목 — 번호 + 사역·행사명', level: 1 },
+      { id: 5, text: '예) 1. 주일예배  /  2. 수요예배  /  3. 구역모임  /  4. 심방', level: 2 },
+      { id: 6, text: 'L2 소항목 — 세부 정보 (아래 순서 준수)', level: 1 },
+      { id: 7, text: '① 일시  ② 장소  ③ 대상/참석자  ④ 인원  ⑤ 주제/제목  ⑥ 주요내용  ⑦ 결과/특이사항  ⑧ 향후계획  ⑨ 사진(맨 마지막)', level: 2 },
+      { id: 8, text: '전주보고 / 금주계획 구분 기준', level: 0 },
+      { id: 9, text: '전주보고 — 지난 주에 있었던 일 (과거형)', level: 1 },
+      { id: 10, text: '"~했음", "~완료", "지난 주일", "지난 주 진행" 등 과거 표현 사용', level: 2 },
+      { id: 11, text: '금주계획 — 이번 주에 할 일 (미래·예정형)', level: 1 },
+      { id: 12, text: '"~예정", "~할 예정", "이번 주" 등 미래 표현 사용', level: 2 },
+      { id: 13, text: '두 내용이 같은 항목에 섞이면 분리해서 작성', level: 2 },
+      { id: 14, text: '표현 통일 규칙', level: 0 },
+      { id: 15, text: '"날짜" → 일시 / "참가자·참여자·출석자" → 참석자', level: 1 },
+      { id: 16, text: '"참가인원·출석인원" → 인원 / "세부내용·사항" → 주요내용', level: 1 },
+      { id: 17, text: '"예정사항·향후사항" → 향후계획 / 숫자 표기: "이십명" → 20명', level: 1 },
+      { id: 18, text: '항목 표기 통일: "항목명: 내용" 형태 유지', level: 1 },
+      { id: 19, text: '보고서 입력 방법', level: 0 },
+      { id: 20, text: '간편 입력 — 글+사진 카드 방식 (모바일 최적)', level: 1 },
+      { id: 21, text: '카카오 입력 — 카카오톡 메시지를 그대로 붙여넣기. # 기호로 섹션 구분', level: 1 },
+      { id: 22, text: '일반 편집기 — L0/L1/L2 계층을 직접 편집, 표/이미지 첨부 가능', level: 1 },
+      { id: 23, text: 'AI 검토 — 서식·맞춤법·계층 오류를 자동 교정 후 선택 적용', level: 1 },
+    ] as any[],
+  };
+
   const loadNotices = async () => {
     try {
       const parsed = await fetchDbData('SYSTEM_NOTICES');
-      if (parsed && parsed.data) {
-        setNotices(parsed.data);
+      if (parsed && parsed.data && parsed.data.length > 0) {
+        const existing = parsed.data as any[];
+        // 가이드 공지가 없으면 맨 앞에 추가
+        if (!existing.find((n: any) => n.id === 'guide-001')) {
+          setNotices([DEFAULT_GUIDE_NOTICE, ...existing]);
+        } else {
+          setNotices(existing);
+        }
+      } else {
+        setNotices([DEFAULT_GUIDE_NOTICE]);
       }
     } catch (e) { console.error(e); }
   };
@@ -3124,7 +3165,7 @@ const renderPreviewLines = () => {
              <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지 작성</button>
            )}
            <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base relative ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}>
-             <Bell className="w-4 h-4"/> 공지사항 확인
+             <Bell className="w-4 h-4"/> 공지사항
              {notices.filter(n => !readNoticeIds.has(n.id)).length > 0 && (
                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
                  {notices.filter(n => !readNoticeIds.has(n.id)).length}
@@ -3548,7 +3589,7 @@ const renderPreviewLines = () => {
                     title="카카오톡 메시지 붙여넣기 입력"
                   >
                     <AlignLeft className="w-4 h-4" />
-                    {quickEntryMode ? '편집기 복귀' : '붙여넣기'}
+                    {quickEntryMode ? '편집기 복귀' : '카카오 입력'}
                   </button>
                 )}
                 {/* 보고서 전체 텍스트 복사 */}
@@ -3587,20 +3628,11 @@ const renderPreviewLines = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => setShowJsonModal(true)}
-                  className="flex items-center gap-2 text-sm bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md transition-colors shadow-sm"
-                  title="데이터 구조 확인"
-                >
-                  <FileJson className="w-4 h-4" />
-                  추출
-                </button>
-                <button
                   onClick={() => { setResetMode('quick'); setResetSelectedParishes([]); setResetSelectedChurches({}); setShowResetModal(true); }}
-                  className="flex items-center gap-1.5 text-sm bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 font-bold px-3 py-1.5 rounded-md transition-colors shadow-sm"
-                  title="데이터 초기화 옵션"
+                  className="flex items-center gap-1.5 text-sm bg-red-50 border border-red-200 hover:bg-red-100 text-red-400 px-2 py-1.5 rounded-md transition-colors shadow-sm"
+                  title="전체 초기화"
                 >
                   <Trash2 className="w-4 h-4" />
-                  전체 초기화
                 </button>
               </div>
             </div>
