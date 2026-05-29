@@ -113,7 +113,6 @@ interface ReportItem {
 }
 
 const PARISH_CHURCH_MAP: Record<string, string[]> = {
-  "협회": ["기획국", "미래인재국", "가정행복국", "총무국", "문화홍보국", "사회공헌국", "대외협력국"],
   "천원특별": ["교구본부", "천원궁 천원", "가평", "청평", "북면가정", "조종가정", "상면가정"],
   "서울북부": ["교구본부", "천원궁 천승", "천승(1구역)", "천승(2구역)", "천승(3구역)", "광진", "노원", "동대문", "성북", "안암학사", "신촌학사", "한양학사", "은평", "서대문", "중구", "종로", "중랑", "강북", "장안", "도봉", "청파", "광화문학사", "HJ글로벌"],
   "서울남부": ["교구본부", "강남", "영등포", "강동", "양천", "강서", "관악", "구로", "금천", "명일", "송파", "흑석동작"],
@@ -132,7 +131,6 @@ const PARISH_CHURCH_MAP: Record<string, string[]> = {
 
 // Helper functions for display
 const getDisplayParish = (parishName: string) => {
-  if (parishName === '협회') return '협회본부';
   return parishName.endsWith('교구') ? parishName : `${parishName}교구`;
 };
 const getDisplayChurch = (churchName: string) => {
@@ -265,6 +263,7 @@ export default function App() {
   const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
   const [quickEntryMode, setQuickEntryMode] = useState(false);
   const [quickEntryText, setQuickEntryText] = useState('');
+  const [simpleMode, setSimpleMode] = useState(false);
 
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string>('');
@@ -279,7 +278,7 @@ export default function App() {
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
 
-  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice' | 'admin_console'>('report');
+  const [activeTab, setActiveTab] = useState<'report' | 'notice_write' | 'notice' | 'admin_console'>('report');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeCategory, setNoticeCategory] = useState('공지');
   const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
@@ -320,6 +319,7 @@ export default function App() {
   const [adminReportTimestampMap, setAdminReportTimestampMap] = useState<Record<string, string | null>>({});
   const [adminExpandedParish, setAdminExpandedParish] = useState<string | null>(null);
   const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
+  const [adminConsoleParish, setAdminConsoleParish] = useState<string>(Object.keys(PARISH_CHURCH_MAP)[0]);
   const [adminLastRefreshed, setAdminLastRefreshed] = useState<Date | null>(null);
   const [adminAutoRefresh, setAdminAutoRefresh] = useState(false);
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
@@ -820,12 +820,12 @@ export default function App() {
 
   const startAdminAiReview = async () => {
     setIsAdminCheckingAI(true);
-    setAdminCompilationProgress("전국 교구 및 협회 보고서 실시간 취합 중...");
+    setAdminCompilationProgress("전국 교구 보고서 실시간 취합 중...");
     setAdminAiCorrections(null);
 
     try {
       const parishes = Object.keys(PARISH_CHURCH_MAP);
-      setAdminCompilationProgress("전국 교구 및 협회 보고서 Drive에서 병렬 취합 중...");
+      setAdminCompilationProgress("전국 교구 보고서 Drive에서 병렬 취합 중...");
 
       // 교구별 병렬, 교구 내 교회도 병렬로 Drive 취합
       const parishResults = await Promise.all(
@@ -858,7 +858,7 @@ export default function App() {
 
       setAdminCompilationProgress(`총 ${allAdminPayload.length}개 업무보고 항목 취합 성공. AI 종합 편집 및 문맥 검토 분석 중...`);
 
-      const adminAiPrompt = `당신은 전체 교구 및 협회 주간업무보고를 총괄 검토하는 전문 수석 편집자입니다.
+      const adminAiPrompt = `당신은 전체 교구 주간업무보고를 총괄 검토하는 전문 수석 편집자입니다.
 아래 제공된 데이터의 텍스트(text)를 검토하세요. 각 항목은 교구(parish), 교회(church), 항목 ID(id)를 가지고 있습니다.
 1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 개조식 형식(~함, ~예정 등)에 맞지 않는 항목들을 찾아 완벽하게 교정해 주세요.
 반드시 아래 JSON 배열 형태로만 정확히 응답하세요. (백틱이나 markdown 코드 블록 없이 순수 JSON만 반환해야 합니다.)
@@ -992,7 +992,7 @@ export default function App() {
   };
 
   const exportMasterToWord = async () => {
-    setAdminCompilationProgress("전체 교구 및 협회 데이터를 최종 취합하여 워드(Word) 문서를 생성하는 중...");
+    setAdminCompilationProgress("전체 교구 데이터를 최종 취합하여 워드(Word) 문서를 생성하는 중...");
     
     try {
       let allChildren: (Paragraph | Table)[] = [];
@@ -1001,7 +1001,7 @@ export default function App() {
         new Paragraph({
           children: [
             new TextRun({
-              text: "전국 교구 및 협회 통합 주간업무보고서",
+              text: "전국 교구 통합 주간업무보고서",
               size: 40,
               bold: true,
               color: "1D4ED8",
@@ -1234,7 +1234,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `전국교구_및_협회_종합_업무보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
+      a.download = `전국교구_종합_업무보고_${appConfig?.solarDate || new Date().toISOString().split('T')[0]}.docx`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -1336,7 +1336,6 @@ export default function App() {
                const maxId = Math.max(4, ...(supaData.data || DEFAULT_REPORT).map((d: any) => d.id));
                setNextId(maxId + 1);
                localStorage.setItem(key, JSON.stringify(supaData));
-               setAiCorrections(null);
                isLoadingDataRef.current = false;
                setIsLoadingData(false);
                return;
@@ -1366,7 +1365,6 @@ export default function App() {
         console.error("Drive load failed", e);
       }
 
-      setAiCorrections(null);
 
       isLoadingDataRef.current = false;
       setIsLoadingData(false);
@@ -1397,13 +1395,13 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (activeTab === 'report' || activeTab === 'association') {
+        if (activeTab === 'report') {
           handleSave(false);
         }
       }
       // Ctrl+Enter: 제출 확정 (미제출 상태일 때만)
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        if ((activeTab === 'report' || activeTab === 'association') && status !== 'submitted') {
+        if ((activeTab === 'report') && status !== 'submitted') {
           e.preventDefault();
           handleSave(true);
         }
@@ -2803,10 +2801,7 @@ const renderPreviewLines = () => {
     let label = "";
     if (activeTab === 'report') {
       label = "모든 교구";
-      targetParishes = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회');
-    } else if (activeTab === 'association') {
-      label = "협회";
-      targetParishes = ['협회'];
+      targetParishes = Object.keys(PARISH_CHURCH_MAP);
     } else {
       return;
     }
@@ -3018,7 +3013,7 @@ const renderPreviewLines = () => {
           {/* 전국 제출률 뱃지 (admin / manager) */}
           {(role === 'admin' || role === 'manager') && (() => {
             const allKeys = Object.entries(PARISH_CHURCH_MAP)
-              .filter(([p]) => p !== '협회')
+              
               .flatMap(([p, cs]) => (cs as string[]).slice(1).map(c => `${p}_${c}`));
             const submitted = allKeys.filter(k => adminReportStatusMap[k] === 'submitted').length;
             const pct = allKeys.length > 0 ? Math.round((submitted / allKeys.length) * 100) : 0;
@@ -3305,7 +3300,7 @@ const renderPreviewLines = () => {
         </div>
       )}
 
-      {(activeTab === 'report' || activeTab === 'association' || activeTab === 'notice_write') && (
+      {(activeTab === 'report' || activeTab === 'notice_write') && (
       <div className="w-full max-w-full px-1 sm:px-4 lg:px-8 mx-auto flex flex-col flex-1 min-h-0">
 
         {/* 교회장: 제출 상태 배너 */}
@@ -3345,7 +3340,7 @@ const renderPreviewLines = () => {
           <div className="flex flex-col mb-4 pb-4 border-b border-slate-200 gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                {activeTab === 'association' ? '협회 보고서 작성' : activeTab === 'notice_write' ? '공지사항 작성 에디터' : '교구 보고서 작성'}
+                {activeTab === 'notice_write' ? '공지사항 작성 에디터' : '교구 보고서 작성'}
                 {isLoadingData ? (
                   <span className="text-xs font-normal text-blue-500 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-full animate-pulse">
                     <RefreshCw className="w-3 h-3 animate-spin" /> 불러오는 중...
@@ -3359,17 +3354,24 @@ const renderPreviewLines = () => {
               <div className="flex gap-2 flex-wrap">
                 {activeTab !== 'notice_write' && (
                   <button
-                    onClick={() => quickEntryMode ? setQuickEntryMode(false) : enterQuickEntry()}
-                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${quickEntryMode ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
-                    title="줄별 빠른 입력 모드"
+                    onClick={() => { setSimpleMode(v => !v); if (quickEntryMode) setQuickEntryMode(false); }}
+                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${simpleMode ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'}`}
+                    title="모바일 간편 입력 — 글+사진 카드 방식"
                   >
-                    <AlignLeft className="w-4 h-4" />
-                    {quickEntryMode ? '편집기로 돌아가기' : '줄별 입력'}
+                    <ImageIcon className="w-4 h-4" />
+                    {simpleMode ? '일반 편집기' : '간편 입력'}
                   </button>
                 )}
-                <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
-                  <Check className="w-4 h-4" /> AI 준비됨
-                </span>
+                {activeTab !== 'notice_write' && !simpleMode && (
+                  <button
+                    onClick={() => quickEntryMode ? setQuickEntryMode(false) : enterQuickEntry()}
+                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${quickEntryMode ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+                    title="카카오톡 메시지 붙여넣기 입력"
+                  >
+                    <AlignLeft className="w-4 h-4" />
+                    {quickEntryMode ? '편집기 복귀' : '붙여넣기'}
+                  </button>
+                )}
                 {/* 보고서 전체 텍스트 복사 */}
                 {activeTab !== 'notice_write' && (
                   <button
@@ -3456,7 +3458,7 @@ const renderPreviewLines = () => {
                   </div>
                 ) : (
                   <>
-                    {activeTab !== 'association' && (
+                    {(
                       <div className="flex-1">
                         <label htmlFor="parishSelect" className="block text-xs font-bold text-slate-500 mb-1">교구</label>
                         <select 
@@ -3466,14 +3468,14 @@ const renderPreviewLines = () => {
                           disabled={role === 'manager' || role === 'church'}
                           className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium disabled:bg-slate-100 disabled:text-slate-500"
                         >
-                          {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
+                          {Object.keys(PARISH_CHURCH_MAP).map(p => (
                             <option key={p} value={p}>{getDisplayParish(p)}</option>
                           ))}
                         </select>
                       </div>
                     )}
                     <div className="flex-1">
-                      <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">{activeTab === 'association' ? '협회 부서' : '교회'}</label>
+                      <label htmlFor="churchSelect" className="block text-xs font-bold text-slate-500 mb-1">교회</label>
                       <select 
                         id="churchSelect" 
                         value={church}
@@ -3578,13 +3580,13 @@ const renderPreviewLines = () => {
           {quickEntryMode && activeTab !== 'notice_write' && (
             <div className="mb-4 flex flex-col gap-3">
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
-                <strong>줄별 입력 모드</strong> — 한 줄에 하나씩 입력하세요. <code className="bg-amber-100 px-1 rounded"># 섹션 제목</code>으로 대분류(Ⅰ·Ⅱ)를, 들여쓰기 2칸으로 하위 항목을 만들 수 있습니다. AI 검토 시 계층 구조가 자동 교정됩니다.
+                <strong>붙여넣기 입력</strong> — 카카오톡 메시지를 그대로 붙여넣기 하세요! <code className="bg-amber-100 px-1 rounded"># 섹션제목</code>으로 항목 구분, 나머지 줄은 세부 내용으로 들어갑니다. 나중에 AI로 정리 가능합니다.
               </div>
               <textarea
                 value={quickEntryText}
                 onChange={e => setQuickEntryText(e.target.value)}
-                className="w-full min-h-[400px] border border-slate-300 rounded-lg px-4 py-3 text-sm font-mono leading-relaxed focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-y"
-                placeholder={`# 전주 결과보고\n활동 내용 1\n활동 내용 2\n\n# 금주 계획\n계획 내용 1\n계획 내용 2`}
+                className="w-full min-h-[300px] sm:min-h-[400px] border border-slate-300 rounded-lg px-4 py-3 text-base leading-relaxed focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-y"
+                placeholder={`카카오톡 메시지 복사 후 여기에 붙여넣기\n\n예시:\n# 전주 결과보고\n행사 진행 완료\n참석 인원 50명\n\n# 금주 계획\n수요일 모임 준비`}
                 autoFocus
               />
               <div className="flex gap-2">
@@ -3604,7 +3606,65 @@ const renderPreviewLines = () => {
             </div>
           )}
 
-          <div className={`flex-1 pr-2 space-y-2 pb-4 ${quickEntryMode ? 'hidden' : ''}`}>
+          {/* 간편 입력 모드 — 글+사진 카드 방식 */}
+          {simpleMode && activeTab !== 'notice_write' && (
+            <div className="mb-4 space-y-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-800 leading-relaxed flex items-start gap-2">
+                <ImageIcon className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+                <span><strong>간편 입력 모드</strong> — 각 항목에 글을 쓰고 사진을 첨부하세요. 카카오톡 내용 복사 후 그대로 붙여넣기 가능합니다.</span>
+              </div>
+              {reportData.filter(item => item.level === 0).map((item, idx) => (
+                <div key={item.id} className="bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                    <span className="text-xs font-bold text-slate-500">항목 {idx + 1}</span>
+                    <button onClick={() => removeItem(item.id)} className="p-1 text-red-400 hover:text-red-600 rounded transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    <TextareaAutosize
+                      value={item.text || ''}
+                      onChange={e => updateText(item.id, e.target.value)}
+                      className="w-full text-base leading-relaxed outline-none resize-none font-medium placeholder:text-slate-300"
+                      placeholder="내용을 입력하거나 카카오톡 메시지를 붙여넣기 하세요..."
+                      minRows={3}
+                    />
+                  </div>
+                  {item.image && (
+                    <div className="px-4 pb-3">
+                      <div className="relative inline-block w-full">
+                        <img src={item.image} alt="첨부" className="w-full max-h-64 object-contain rounded-xl border border-slate-200" />
+                        <button
+                          onClick={() => removeImage(item.id)}
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-md"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="px-4 pb-4">
+                    <label className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-colors active:scale-[0.98]">
+                      <ImageIcon className="w-5 h-5 text-slate-400" />
+                      <span className="text-sm text-slate-500 font-semibold">{item.image ? '사진 변경' : '📷 사진 첨부'}</span>
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageUpload(e, item.id)} />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const newId = Date.now();
+                  setReportData(prev => [...prev, { id: newId, text: '', level: 0 }]);
+                }}
+                className="w-full py-4 rounded-2xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 text-emerald-600 font-bold flex items-center justify-center gap-2 transition-colors active:scale-[0.98] text-sm"
+              >
+                <Plus className="w-5 h-5" /> 새 항목 추가
+              </button>
+            </div>
+          )}
+
+          <div className={`flex-1 pr-2 space-y-2 pb-4 ${quickEntryMode || simpleMode ? 'hidden' : ''}`}>
             {(() => {
               const editorCounters = [0, 0, 0, 0, 0, 0];
               let currentL0Id: number | null = null;
@@ -4303,7 +4363,7 @@ const renderPreviewLines = () => {
                     전체 교구 제출현황 및 제어
                   </h2>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <p className="text-xs text-slate-500">전국 교구와 협회 부서의 작성 현황</p>
+                    <p className="text-xs text-slate-500">전국 교구의 작성 현황</p>
                     {adminLastRefreshed && (
                       <span className="text-[10px] text-slate-400" title={adminLastRefreshed.toLocaleTimeString('ko-KR')}>
                         갱신: {adminLastRefreshed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
@@ -4344,7 +4404,7 @@ const renderPreviewLines = () => {
               {/* 전국 종합 현황 요약 */}
               {(() => {
                 const allChurches = Object.entries(PARISH_CHURCH_MAP)
-                  .filter(([p]) => p !== '협회')
+                  
                   .flatMap(([p, cs]) => cs.slice(1).map(c => `${p}_${c}`));
                 const totalSubmitted = allChurches.filter(k => adminReportStatusMap[k] === 'submitted').length;
                 const totalDraft = allChurches.filter(k => adminReportStatusMap[k] === 'draft').length;
@@ -4353,7 +4413,7 @@ const renderPreviewLines = () => {
                 return (
                   <div className="mb-3 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-purple-800">전국 교구 제출 현황 (협회 제외)</span>
+                      <span className="text-xs font-bold text-purple-800">전국 교구 제출 현황</span>
                       <span className={`text-sm font-black ${pct === 100 ? 'text-emerald-600' : 'text-purple-700'}`}>{pct}%</span>
                     </div>
                     <div className="w-full bg-white/60 rounded-full h-2 overflow-hidden mb-2">
@@ -4368,7 +4428,7 @@ const renderPreviewLines = () => {
                         onClick={() => {
                           const lines = [`[${appConfig?.solarDate || '이번 주'} 전국 교구 제출현황]`, `제출률: ${pct}% (${totalSubmitted}/${allChurches.length}개)`, ''];
                           Object.entries(PARISH_CHURCH_MAP)
-                            .filter(([p]) => p !== '협회')
+                            
                             .forEach(([p, cs]) => {
                               const tcs = (cs as string[]).slice(1);
                               const submitted = tcs.filter(c => adminReportStatusMap[`${p}_${c}`] === 'submitted').length;
@@ -4409,7 +4469,7 @@ const renderPreviewLines = () => {
                     <div key={p} className={`border rounded-xl overflow-hidden transition-all ${isComplete ? 'border-emerald-200 bg-emerald-50/40' : isExpanded ? 'border-purple-300' : 'border-slate-200 bg-white'}`}>
                       {/* Header row */}
                       <div
-                        onClick={() => setAdminExpandedParish(isExpanded ? null : p)}
+                        onClick={() => { setAdminExpandedParish(isExpanded ? null : p); if (!isExpanded) setAdminConsoleParish(p); }}
                         className="flex items-center gap-3 p-3 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
                         <div className={`w-2 h-2 rounded-full shrink-0 ${isComplete ? 'bg-emerald-500' : draftCount > 0 ? 'bg-blue-400' : 'bg-slate-300'}`} />
@@ -4471,8 +4531,7 @@ const renderPreviewLines = () => {
                                 >
                                   <button
                                     onClick={() => {
-                                      if (p === '협회') { setActiveTab('report'); setParish('협회'); setChurch(c); }
-                                      else { setActiveTab('report'); setParish(p); setChurch(c); }
+                                      setActiveTab('report'); setParish(p); setChurch(c);
                                     }}
                                     className="text-left px-2.5 py-2 w-full"
                                   >
@@ -4527,7 +4586,7 @@ const renderPreviewLines = () => {
               {/* 미제출 교구 알림 문자 복사 */}
               {(() => {
                 const notDone = Object.entries(PARISH_CHURCH_MAP)
-                  .filter(([p]) => p !== '협회')
+                  
                   .filter(([p, cs]) => {
                     const tcs = (cs as string[]).slice(1);
                     return tcs.some(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted');
@@ -4554,69 +4613,157 @@ const renderPreviewLines = () => {
               })()}
             </div>
 
-            {/* Right Panel: Batch AI Review & Word compilation */}
+            {/* Right Panel: Parish Compilation Console */}
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[calc(100vh-12rem)] xl:h-[calc(100vh-8rem)]">
-              <div className="pb-4 border-b border-slate-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
+              {/* Header */}
+              <div className="pb-4 border-b border-slate-200 mb-4 flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
-                    AI 종합 취합 및 통합 검토 콘솔
+                    <Download className="w-5 h-5 text-blue-600" />
+                    교구별 취합 콘솔
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">전국 보고서를 실시간으로 취합하여 일괄 AI 맞춤법 교정 및 마스터 워드 파일로 다운로드합니다.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">교구 선택 후 Word 내보내기 및 미제출 알림을 관리하세요</p>
                 </div>
               </div>
 
-              {/* ── Google Drive · AI Studio Build 연동 ── */}
-              <div className="mb-5 space-y-3">
+              {/* Parish selector */}
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">취합할 교구</label>
+                <select
+                  value={adminConsoleParish}
+                  onChange={(e) => setAdminConsoleParish(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                >
+                  {Object.keys(PARISH_CHURCH_MAP).map(p => (
+                    <option key={p} value={p}>{getDisplayParish(p)}</option>
+                  ))}
+                </select>
+              </div>
 
-                {/* 상태 배너 */}
-                <div className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 border ${
-                  driveStatus?.authenticated
-                    ? 'bg-emerald-50 border-emerald-200'
-                    : driveStatus?.configured
-                    ? 'bg-amber-50 border-amber-200'
-                    : 'bg-red-50 border-red-200'
-                }`}>
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {driveStatusLoading ? (
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin shrink-0" />
-                    ) : driveStatus?.authenticated ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                    ) : driveStatus?.configured ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
-                    ) : (
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <p className={`text-xs font-black ${driveStatus?.authenticated ? 'text-emerald-700' : driveStatus?.configured ? 'text-amber-700' : 'text-red-700'}`}>
-                        Google Drive:{' '}
-                        {driveStatusLoading
-                          ? '상태 확인 중...'
-                          : driveStatus?.authenticated
-                          ? '✅ 연결됨 — 보고서 제출 시 자동 업로드'
-                          : driveStatus?.configured
-                          ? '⚠️ Refresh Token 미등록 — 아래 3단계 완료 필요'
-                          : '❌ 미연결 — 아래 설정 가이드를 따라주세요'}
-                      </p>
-                      {driveStatus?.appUrl && (
-                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">앱 URL: {driveStatus.appUrl}</p>
-                      )}
+              {/* Parish stats */}
+              {(() => {
+                const targets = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
+                const submitted = targets.filter(c => adminReportStatusMap[`${adminConsoleParish}_${c}`] === 'submitted').length;
+                const draft = targets.filter(c => adminReportStatusMap[`${adminConsoleParish}_${c}`] === 'draft').length;
+                const empty = targets.length - submitted - draft;
+                const pct = targets.length > 0 ? Math.round(submitted / targets.length * 100) : 0;
+                return (
+                  <div className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-blue-800">{getDisplayParish(adminConsoleParish)} 제출 현황</span>
+                      <span className={`text-sm font-black ${pct === 100 ? 'text-emerald-600' : 'text-blue-700'}`}>{pct}%</span>
+                    </div>
+                    <div className="w-full bg-white/60 rounded-full h-2 overflow-hidden mb-2.5">
+                      <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex gap-3 text-[11px] font-semibold">
+                      <span className="text-emerald-600">✅ {submitted}</span>
+                      <span className="text-blue-600">📝 {draft}</span>
+                      <span className="text-slate-400">⬜ {empty}</span>
+                      <span className="text-slate-500 ml-auto">총 {targets.length}개</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={checkDriveStatus} className="p-1.5 rounded-lg hover:bg-white/60 text-slate-400 transition-colors" title="새로고침">
-                      <RefreshCw className="w-3.5 h-3.5" />
+                );
+              })()}
+
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button
+                  onClick={() => {
+                    setActiveTab('report');
+                    setParish(adminConsoleParish);
+                    setChurch(PARISH_CHURCH_MAP[adminConsoleParish][0]);
+                    setTimeout(() => exportToWord(), 500);
+                  }}
+                  className="bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white px-3 py-3.5 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-sm transition-all active:scale-[0.98]"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="text-xs">{getDisplayParish(adminConsoleParish)}</span>
+                  <span className="text-[10px] text-blue-200">교구 Word 출력</span>
+                </button>
+                <button
+                  onClick={exportMasterToWord}
+                  disabled={!!adminCompilationProgress}
+                  className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-3 py-3.5 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-sm transition-all active:scale-[0.98] disabled:opacity-60"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="text-xs">전국 통합</span>
+                  <span className="text-[10px] text-indigo-200">마스터 Word</span>
+                </button>
+              </div>
+
+              {/* Missing notification */}
+              {(() => {
+                const targets = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
+                const notSub = targets.filter(c => adminReportStatusMap[`${adminConsoleParish}_${c}`] !== 'submitted').map(c => getDisplayChurch(c));
+                if (notSub.length === 0) return (
+                  <div className="mb-3 text-xs text-emerald-600 font-bold flex items-center gap-1.5 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-200">
+                    <CheckCircle className="w-3.5 h-3.5" /> 모든 교회 제출 완료! 🎉
+                  </div>
+                );
+                return (
+                  <button
+                    onClick={() => {
+                      const msg = `[${getDisplayParish(adminConsoleParish)} 주간보고 알림]\n${appConfig?.solarDate || '이번 주'} 미제출 교회:\n${notSub.map(c => `• ${c}`).join('\n')}\n\n빠른 제출 부탁드립니다.`;
+                      navigator.clipboard.writeText(msg);
+                      toast.success('미제출 알림 문자가 복사되었습니다.');
+                    }}
+                    className="mb-3 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> {getDisplayParish(adminConsoleParish)} 미제출({notSub.length}개) 알림 복사
+                  </button>
+                );
+              })()}
+
+              {/* Church list for selected parish */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <p className="text-[11px] font-bold text-slate-500 mb-2">{getDisplayParish(adminConsoleParish)} 교회별 현황 (클릭 시 보고서 편집)</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1).map(c => {
+                    const st = adminReportStatusMap[`${adminConsoleParish}_${c}`] || 'empty';
+                    const ts = adminReportTimestampMap[`${adminConsoleParish}_${c}`];
+                    return (
+                      <button
+                        key={c}
+                        onClick={() => { setActiveTab('report'); setParish(adminConsoleParish); setChurch(c); }}
+                        className={`text-left p-2.5 rounded-lg border text-xs transition-all hover:shadow-sm ${
+                          st === 'submitted' ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' :
+                          st === 'draft' ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' :
+                          'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className={`font-bold truncate ${st === 'submitted' ? 'text-emerald-700' : st === 'draft' ? 'text-blue-700' : 'text-slate-400'}`}>{getDisplayChurch(c)}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          {st === 'submitted' ? '✅ 제출' : st === 'draft' ? '📝 작성중' : '⬜ 미작성'}
+                        </div>
+                        {ts && <div className="text-[9px] text-slate-300 truncate mt-0.5">{getRelativeTime(ts) || ts}</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Drive status + guide */}
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                <div className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border text-xs ${
+                  driveStatus?.authenticated ? 'bg-emerald-50 border-emerald-200' :
+                  driveStatus?.configured ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+                }`}>
+                  <span className={`font-bold truncate ${driveStatus?.authenticated ? 'text-emerald-700' : driveStatus?.configured ? 'text-amber-700' : 'text-red-700'}`}>
+                    Drive: {driveStatusLoading ? '확인 중...' : driveStatus?.authenticated ? '✅ 연결됨' : driveStatus?.configured ? '⚠️ 토큰 필요' : '❌ 미연결'}
+                  </span>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={checkDriveStatus} className="p-1 rounded hover:bg-white/60 text-slate-400 transition-colors" title="새로고침">
+                      <RefreshCw className="w-3 h-3" />
                     </button>
                     <button
                       onClick={() => setShowAiStudioGuide(v => !v)}
-                      className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                      className="px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded text-[10px] font-bold transition-colors flex items-center gap-1"
                     >
-                      <Settings className="w-3 h-3" />
-                      {showAiStudioGuide ? '가이드 닫기' : 'Drive 연동 설정 가이드'}
+                      <Settings className="w-3 h-3" /> 설정
                     </button>
                   </div>
                 </div>
-
                 {/* AI Studio Build 전용 설정 가이드 */}
                 {showAiStudioGuide && (
                   <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -4724,7 +4871,7 @@ const renderPreviewLines = () => {
                         <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">B. 매주 AI Studio에서 보고서 검토 · 다운로드</p>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                           {[
-                            { icon: '📤', title: '보고서 제출', desc: '각 교구·협회가 제출하면 Drive에 자동 업로드됩니다' },
+                            { icon: '📤', title: '보고서 제출', desc: '각 교구에서 제출하면 Drive에 자동 업로드됩니다' },
                             { icon: '🤖', title: 'AI Studio에서 열기', desc: 'AI Studio 채팅 → 파일 추가 → Drive → 주간보고_제출현황 폴더 선택' },
                             { icon: '⬇️', title: 'AI 검토 후 다운로드', desc: 'AI가 서식 그대로 교정 → 워드 파일로 다운로드' },
                           ].map(({ icon, title, desc }) => (
@@ -4763,164 +4910,11 @@ const renderPreviewLines = () => {
 
               </div>
 
-              {/* Action Buttons Container */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                <button
-                  disabled={isAdminCheckingAI}
-                  onClick={startAdminAiReview}
-                  className="relative overflow-hidden group bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
-                >
-                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <div className="flex items-center gap-2">
-                    <Bot className={`w-5 h-5 ${isAdminCheckingAI ? 'animate-spin' : 'animate-bounce'}`} />
-                    <span className="text-base">전체 취합 AI 일괄 검토 시작</span>
-                  </div>
-                  <span className="text-[10px] text-purple-200 font-medium font-sans text-center">실시간 데이터 100% 취합 + AI 문맥·오타 완벽 교정</span>
-                </button>
-
-                <button
-                  disabled={isAdminCheckingAI}
-                  onClick={exportMasterToWord}
-                  className="relative overflow-hidden group bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
-                >
-                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <div className="flex items-center gap-2">
-                    <Download className="w-5 h-5" />
-                    <span className="text-base">통합 마스터 워드(.docx) 다운로드</span>
-                  </div>
-                  <span className="text-[10px] text-blue-200 font-medium font-sans text-center">전국 모든 교구 + 협회 업무보고서 A4 한 권으로 즉시 출력</span>
-                </button>
-
-                <button
-                  onClick={async () => {
-                    try {
-                      const serverUrl = getLocalServerUrl();
-                      const res = await fetch(`${serverUrl}/api/open-folder`, { method: 'POST' });
-                      if (res.ok) {
-                        const data = await res.json();
-                        toast.success(`📂 드라이브 폴더 열기 완료: ${data.path}`);
-                      } else {
-                        toast.error("폴더를 열 수 없습니다. 로컬 서버 구동 상태를 확인해 주세요.");
-                      }
-                    } catch (e) {
-                      toast.error("로컬 서버에 연결할 수 없습니다. 먼저 로컬 서버를 실행해 주세요.");
-                    }
-                  }}
-                  className="relative overflow-hidden group bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-5 py-4 rounded-xl font-bold flex flex-col items-center justify-center gap-1 shadow-md transition-all active:scale-[0.98]"
-                >
-                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <div className="flex items-center gap-2">
-                    <Folder className="w-5 h-5" />
-                    <span className="text-base">구글 드라이브 폴더 열기</span>
-                  </div>
-                  <span className="text-[10px] text-emerald-200 font-medium font-sans text-center">실시간 개별 저장된 전국 텍스트(.txt) 보고서 즉시 확인</span>
-                </button>
-              </div>
-
-              {/* Live Loading/Progress indicator */}
+              {/* Progress indicator */}
               {adminCompilationProgress && (
-                <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
-                  <div className="w-12 h-12 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin mb-4" />
-                  <p className="text-sm font-bold text-purple-700 animate-pulse">{adminCompilationProgress}</p>
-                  <p className="text-xs text-slate-400 mt-2">이 작업은 취합되는 보고서 수에 따라 최대 30초 정도 소요될 수 있습니다.</p>
-                </div>
-              )}
-
-              {/* Placeholder when idle */}
-              {!adminCompilationProgress && !adminAiCorrections && (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
-                  <Sparkles className="w-16 h-16 text-indigo-300 opacity-40 mb-4 animate-pulse" />
-                  <h3 className="font-extrabold text-slate-700 text-base">취합 및 AI 일괄 검토 대기 중</h3>
-                  <p className="text-xs text-slate-400 mt-2 max-w-sm leading-relaxed">
-                    상단의 <strong>'전체 취합 AI 일괄 검토 시작'</strong> 버튼을 클릭하여 전국에서 수집된 보고서들을 실시간으로 수집하고 AI 문장 교정을 시작하세요.
-                  </p>
-                </div>
-              )}
-
-              {/* Suggestions list */}
-              {!adminCompilationProgress && adminAiCorrections && (
-                <div className="flex-1 flex flex-col min-h-0">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-purple-600" />
-                      AI 교정 제안 목록 ({adminAiCorrections.length}건 발견)
-                    </h3>
-                    <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1.5 rounded-full">실시간 완벽 편집 지원</span>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0 pb-4">
-                    {adminAiCorrections.length === 0 ? (
-                      <div className="text-center py-12 text-slate-400 text-sm font-bold">오타나 수정이 필요한 어색한 항목이 전혀 발견되지 않았습니다. 완벽합니다! 🎉</div>
-                    ) : (
-                      adminAiCorrections.map((c: any, index: number) => {
-                        const key = `${c.parish}_${c.church}_${c.id}`;
-                        const isChecked = !!adminSelectedCorrections[key];
-
-                        return (
-                          <div 
-                            key={index} 
-                            onClick={() => toggleAdminCorrectionSelected(c.parish, c.church, c.id)}
-                            className={`border rounded-xl p-4 transition-all cursor-pointer hover:shadow-md select-none ${isChecked ? 'bg-indigo-50/50 border-indigo-200 shadow-sm' : 'bg-white border-slate-200 opacity-60'}`}
-                          >
-                            {/* Correction Header info */}
-                            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
-                              <div className="flex items-center gap-2">
-                                <input 
-                                  type="checkbox" 
-                                  checked={isChecked} 
-                                  onChange={() => {}} 
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-400 cursor-pointer"
-                                />
-                                <span className="text-xs font-black text-slate-800 bg-slate-100 px-2 py-1 rounded">
-                                  {getDisplayParish(c.parish)} &gt; {getDisplayChurch(c.church)}
-                                </span>
-                              </div>
-                              {c.reason && (
-                                <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
-                                  💡 {c.reason}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Side by side comparison */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs leading-relaxed">
-                              {/* Original */}
-                              <div className="bg-red-50/50 border border-red-100 p-3 rounded-lg flex flex-col gap-1">
-                                <span className="text-[10px] font-black text-red-600 select-none">수정 전 원본 내용</span>
-                                <span className="text-slate-700 font-medium font-sans break-all line-through">{c.original}</span>
-                              </div>
-                              {/* Corrected */}
-                              <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-lg flex flex-col gap-1">
-                                <span className="text-[10px] font-black text-emerald-600 select-none">AI 추천 교정 내용</span>
-                                <span className="text-slate-800 font-extrabold font-sans break-all">{c.corrected}</span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Actions footer bar inside right panel */}
-                  {adminAiCorrections.length > 0 && (
-                    <div className="pt-4 border-t border-slate-200 mt-2 flex items-center justify-end gap-3 bg-white">
-                      <button
-                        onClick={() => {
-                          setAdminAiCorrections(null);
-                        }}
-                        className="px-4 py-2.5 text-slate-500 hover:bg-slate-100 rounded-lg text-xs font-bold transition-all"
-                      >
-                        제안 닫기
-                      </button>
-                      <button
-                        onClick={applySelectedAdminCorrections}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-extrabold shadow-md shadow-indigo-100 transition-all flex items-center gap-1.5"
-                      >
-                        <Check className="w-4 h-4" />
-                        선택된 {Object.values(adminSelectedCorrections).filter(Boolean).length}개 제안 실시간 반영 및 데이터 적용
-                      </button>
-                    </div>
-                  )}
+                <div className="mt-3 flex items-center gap-2 p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                  <div className="w-5 h-5 rounded-full border-2 border-purple-200 border-t-purple-600 animate-spin shrink-0" />
+                  <p className="text-xs font-bold text-purple-700 animate-pulse">{adminCompilationProgress}</p>
                 </div>
               )}
             </div>
@@ -5183,7 +5177,7 @@ const renderPreviewLines = () => {
                       <span className="bg-purple-100 text-purple-700 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
                       전국 교구 모니터링 (관리자 콘솔)
                     </h3>
-                    <p className="text-sm leading-relaxed mb-2">상단의 <strong>[⚙️ 관리자 콘솔]</strong> 탭을 클릭하면 전국 모든 교구 및 협회 부서의 실시간 작성 및 제출율을 한 눈에 확인할 수 있습니다.</p>
+                    <p className="text-sm leading-relaxed mb-2">상단의 <strong>[⚙️ 관리자 콘솔]</strong> 탭을 클릭하면 전국 모든 교구 부서의 실시간 작성 및 제출율을 한 눈에 확인할 수 있습니다.</p>
                   </section>
                   <section>
                     <h3 className="font-bold text-lg text-slate-900 border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
@@ -5334,7 +5328,7 @@ const renderPreviewLines = () => {
                     setChurchChangeChurch(PARISH_CHURCH_MAP[p][0]);
                   }}
                 >
-                  {Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').map(p => (
+                  {Object.keys(PARISH_CHURCH_MAP).map(p => (
                     <option key={p} value={p}>{getDisplayParish(p)}</option>
                   ))}
                 </select>
@@ -5432,46 +5426,17 @@ const renderPreviewLines = () => {
                     </div>
                   </button>
 
-                  {/* 협회 전체 */}
-                  {parish === '협회' ? (
-                    <button
-                      onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); executeReset(targets, true); }}
-                      className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
-                        <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-amber-500" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-800 text-sm">협회 전체 초기화</div>
-                        <div className="text-xs text-slate-500 mt-0.5">협회 <span className="font-medium text-amber-600">{PARISH_CHURCH_MAP['협회']?.length}개 국</span> 전체</div>
-                      </div>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); executeReset(targets, true); }}
-                      className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-amber-100 flex items-center justify-center shrink-0">
-                        <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-amber-500" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-800 text-sm">전체 교구 초기화 (협회 제외)</div>
-                        <div className="text-xs text-slate-500 mt-0.5">교구 전체 <span className="font-medium text-amber-600">{Object.keys(PARISH_CHURCH_MAP).filter(p => p !== '협회').flatMap(p => PARISH_CHURCH_MAP[p]).length}개 교회</span></div>
-                      </div>
-                    </button>
-                  )}
-
-                  {/* 교구+협회 전체 */}
+                  {/* 전체 교구 초기화 */}
                   <button
-                    onClick={() => { const targets = Object.values(PARISH_CHURCH_MAP).flatMap((cs, i) => cs.map(c => ({parish: Object.keys(PARISH_CHURCH_MAP)[i], church: c}))); executeReset(targets, true); }}
+                    onClick={() => { const targets = Object.keys(PARISH_CHURCH_MAP).flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({parish: p, church: c}))); executeReset(targets, true); }}
                     className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-red-400 hover:bg-red-50 transition-all text-left group"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-red-100 flex items-center justify-center shrink-0">
                       <Trash2 className="w-5 h-5 text-slate-400 group-hover:text-red-600" />
                     </div>
                     <div>
-                      <div className="font-bold text-red-700 text-sm">⚠️ 전체 초기화 (교구+협회)</div>
-                      <div className="text-xs text-slate-500 mt-0.5">모든 교구+협회 <span className="font-medium text-red-600">{Object.values(PARISH_CHURCH_MAP).flat().length}개</span> 전체 — 비밀번호 필요</div>
+                      <div className="font-bold text-red-700 text-sm">⚠️ 전체 초기화</div>
+                      <div className="text-xs text-slate-500 mt-0.5">모든 교구 <span className="font-medium text-red-600">{Object.values(PARISH_CHURCH_MAP).flat().length}개</span> 전체 — 비밀번호 필요</div>
                     </div>
                   </button>
                 </div>
@@ -5677,7 +5642,7 @@ const renderPreviewLines = () => {
             {newWeekSolarDate && newWeekHeavenlyDate && newWeekPassword === 'chongmu2027' && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 leading-relaxed">
                 <span className="font-bold text-slate-800">[{newWeekSolarDate.trim()}]</span> (천력 {newWeekHeavenlyDate.trim()}) 주간보고를 새로 시작합니다.<br/>
-                전체 교구 및 협회의 보고서가 초기화됩니다.
+                전체 교구의 보고서가 초기화됩니다.
               </div>
             )}
 
