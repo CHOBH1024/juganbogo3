@@ -318,6 +318,8 @@ export default function App() {
   // 로컬 Claude AI 검토 상태
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [aiCorrections, setAiCorrections] = useState<{id: number; original: string; corrected: string; reason: string}[] | null>(null);
+  const [showAiReviewModal, setShowAiReviewModal] = useState(false);
+  const [aiReviewSelected, setAiReviewSelected] = useState<Record<number, boolean>>({});
 
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string>('');
@@ -2525,11 +2527,15 @@ ${reportText}`;
         if (corrections.length === 0) {
           toast.success('수정이 필요한 항목이 없습니다! 완벽합니다 🎉');
         } else {
-          toast.info(`${corrections.length}개 수정 제안이 있습니다.`);
+          // 전부 선택 상태로 모달 열기
+          const sel: Record<number, boolean> = {};
+          corrections.forEach((_: any, i: number) => { sel[i] = true; });
+          setAiReviewSelected(sel);
+          setShowAiReviewModal(true);
         }
       } else {
         setAiCorrections([]);
-        toast.success('AI 검토 완료 — 수정 제안이 없습니다.');
+        toast.success('AI 검토 완료 — 수정이 필요한 항목이 없습니다.');
       }
     } catch (err: any) {
       console.error(err);
@@ -3529,18 +3535,6 @@ const renderPreviewLines = () => {
                     {quickEntryMode ? '편집기 복귀' : '붙여넣기'}
                   </button>
                 )}
-                {/* AI 검토 — 로컬 모드 + 사무장/관리자 전용 */}
-                {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
-                  <button
-                    onClick={checkWithLocalClaude}
-                    disabled={isCheckingAI}
-                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${isCheckingAI ? 'bg-purple-100 border-purple-300 text-purple-500 cursor-wait' : 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'}`}
-                    title="Claude AI로 맞춤법·전주금주 구분 검토"
-                  >
-                    <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
-                    {isCheckingAI ? '검토 중...' : 'AI 검토'}
-                  </button>
-                )}
                 {/* 보고서 전체 텍스트 복사 */}
                 {activeTab !== 'notice_write' && (
                   <button
@@ -3729,6 +3723,17 @@ const renderPreviewLines = () => {
                       </button>
                     );
                   })()}
+                  {/* AI 검토 버튼 (사무장/관리자 전용) — Word 내보내기 위 */}
+                  {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && (role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
+                    <button
+                      onClick={checkWithLocalClaude}
+                      disabled={isCheckingAI}
+                      className={`mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors border ${isCheckingAI ? 'bg-purple-100 border-purple-300 text-purple-500 cursor-wait' : 'bg-purple-600 hover:bg-purple-700 border-purple-600 text-white'}`}
+                    >
+                      <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
+                      {isCheckingAI ? 'AI 검토 중...' : 'AI 검토'}
+                    </button>
+                  )}
                   {/* 교구 Word 내보내기 (사무장용) */}
                   {role === 'manager' && (
                     <button
@@ -3745,56 +3750,6 @@ const renderPreviewLines = () => {
 
 
 
-          {/* AI 교정 결과 패널 */}
-          {aiCorrections && aiCorrections.length > 0 && (
-            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-purple-100 border-b border-purple-200">
-                <span className="text-sm font-black text-purple-800 flex items-center gap-1.5">
-                  <Bot className="w-4 h-4" /> AI 수정 제안 ({aiCorrections.length}건)
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={applyAllAiCorrections}
-                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
-                    전체 적용
-                  </button>
-                  <button
-                    onClick={() => setAiCorrections(null)}
-                    className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-500 text-xs font-bold rounded-lg border border-slate-200 transition-colors"
-                  >
-                    닫기
-                  </button>
-                </div>
-              </div>
-              <div className="divide-y divide-purple-100 max-h-72 overflow-y-auto">
-                {aiCorrections.map((c, i) => (
-                  <div key={i} className="flex items-start gap-3 px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex gap-2 text-xs mb-1">
-                        <span className="text-red-600 line-through break-all">{c.original}</span>
-                        <span className="text-slate-400">→</span>
-                        <span className="text-emerald-700 font-bold break-all">{c.corrected}</span>
-                      </div>
-                      {c.reason && <p className="text-[10px] text-purple-600">{c.reason}</p>}
-                    </div>
-                    <button
-                      onClick={() => applyAiCorrection(c.original, c.corrected)}
-                      className="shrink-0 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-colors"
-                    >
-                      적용
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {aiCorrections && aiCorrections.length === 0 && (
-            <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-bold">
-              <Check className="w-4 h-4" /> AI 검토 완료 — 수정이 필요한 항목이 없습니다!
-              <button onClick={() => setAiCorrections(null)} className="ml-auto text-xs text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
-            </div>
-          )}
 
           {/* 줄별 빠른 입력 모드 */}
           {quickEntryMode && activeTab !== 'notice_write' && (
@@ -5762,6 +5717,115 @@ const renderPreviewLines = () => {
                   <ArrowRight className="w-4 h-4"/> 변경하기
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI 검토 중 로딩 모달 */}
+      {isCheckingAI && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-8 flex flex-col items-center gap-4 w-full max-w-xs">
+            <div className="w-14 h-14 rounded-full bg-purple-100 flex items-center justify-center">
+              <Bot className="w-7 h-7 text-purple-600 animate-spin" />
+            </div>
+            <div className="text-center">
+              <div className="font-black text-slate-800 text-base">AI 검토 중...</div>
+              <div className="text-xs text-slate-500 mt-1">{getDisplayChurch(church)} 보고서를 분석하고 있습니다</div>
+            </div>
+            <div className="w-full bg-purple-100 rounded-full h-1.5 overflow-hidden">
+              <div className="bg-purple-500 h-1.5 rounded-full animate-pulse w-2/3" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI 수정 제안 모달 */}
+      {showAiReviewModal && aiCorrections && aiCorrections.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-purple-50 rounded-t-2xl">
+              <h2 className="text-base font-black text-purple-800 flex items-center gap-2">
+                <Bot className="w-4 h-4" /> AI 수정 제안 {aiCorrections.length}건
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">{Object.values(aiReviewSelected).filter(Boolean).length}개 선택</span>
+                <button onClick={() => setShowAiReviewModal(false)} className="text-slate-400 hover:text-slate-600 rounded-full p-1 hover:bg-slate-200 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 전체 선택/해제 */}
+            <div className="flex items-center gap-2 px-5 py-2.5 border-b border-slate-100 bg-slate-50">
+              <button
+                onClick={() => {
+                  const allSelected = Object.values(aiReviewSelected).every(Boolean);
+                  const next: Record<number, boolean> = {};
+                  aiCorrections.forEach((_, i) => { next[i] = !allSelected; });
+                  setAiReviewSelected(next);
+                }}
+                className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 font-bold"
+              >
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${Object.values(aiReviewSelected).every(Boolean) ? 'bg-purple-500 border-purple-500' : 'border-slate-300'}`}>
+                  {Object.values(aiReviewSelected).every(Boolean) && <Check className="w-2.5 h-2.5 text-white" />}
+                </div>
+                전체 선택/해제
+              </button>
+            </div>
+
+            {/* 수정 항목 목록 */}
+            <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
+              {aiCorrections.map((c, i) => (
+                <div
+                  key={i}
+                  onClick={() => setAiReviewSelected(prev => ({ ...prev, [i]: !prev[i] }))}
+                  className={`flex items-start gap-3 px-5 py-3.5 cursor-pointer transition-colors ${aiReviewSelected[i] ? 'bg-purple-50' : 'hover:bg-slate-50'}`}
+                >
+                  <div className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${aiReviewSelected[i] ? 'bg-purple-500 border-purple-500' : 'border-slate-300'}`}>
+                    {aiReviewSelected[i] && <Check className="w-2.5 h-2.5 text-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs space-y-0.5 mb-1">
+                      <div className="text-red-500 line-through break-all leading-relaxed">{c.original}</div>
+                      <div className="text-emerald-700 font-bold break-all leading-relaxed">→ {c.corrected}</div>
+                    </div>
+                    {c.reason && <p className="text-[10px] text-purple-500">{c.reason}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex gap-2">
+              <button
+                onClick={() => setShowAiReviewModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-100 transition-colors"
+              >
+                닫기
+              </button>
+              <button
+                onClick={() => {
+                  const selected = aiCorrections.filter((_, i) => aiReviewSelected[i]);
+                  if (selected.length === 0) { toast.warning('선택된 항목이 없습니다.'); return; }
+                  setReportData(prev => {
+                    let updated = [...prev];
+                    selected.forEach(c => {
+                      updated = updated.map(item => item.text === c.original ? { ...item, text: c.corrected } : item);
+                    });
+                    return updated;
+                  });
+                  toast.success(`${selected.length}개 수정이 적용되었습니다.`);
+                  setShowAiReviewModal(false);
+                  setAiCorrections(null);
+                }}
+                disabled={Object.values(aiReviewSelected).every(v => !v)}
+                className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-sm font-bold transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                선택 적용 ({Object.values(aiReviewSelected).filter(Boolean).length}개)
+              </button>
             </div>
           </div>
         </div>
