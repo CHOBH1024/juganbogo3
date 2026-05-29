@@ -223,7 +223,7 @@ export default function App() {
     return () => { _toastDispatch = null; };
   }, []);
 
-  const [role, setRole] = useState<Role>(() => (localStorage.getItem('APP_ROLE') as Role) || null);
+  const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
   const [parish, setParish] = useState(() => localStorage.getItem('APP_PARISH') || "천원특별");
   const [church, setChurch] = useState(() => localStorage.getItem('APP_CHURCH') || PARISH_CHURCH_MAP["천원특별"][0]);
@@ -2385,13 +2385,22 @@ export default function App() {
 
       const allPayload: any[] = [];
       for (const { c, data } of results) {
-        data.filter((item: ReportItem) => item.text.trim() !== "").forEach((item: ReportItem) => {
-          allPayload.push({ church: c, id: item.id, text: item.text });
+        let currentSection = '';
+        data.forEach((item: ReportItem) => {
+          if (item.level === 0) { currentSection = item.text; return; }
+          if (item.text.trim() === '') return;
+          allPayload.push({ church: c, id: item.id, text: item.text, section: currentSection });
         });
       }
 
+      const prevDateLabel = appConfig?.solarDate ? `전주(~${appConfig.solarDate} 이전)` : '전주 결과보고';
+      const curDateLabel = appConfig?.solarDate ? `금주(${appConfig.solarDate} 주간)` : '금주 계획';
+
       const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
 아래 제공된 데이터의 텍스트(text)와 구조(level)를 함께 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
+
+각 항목에는 section 필드가 있습니다. section 값이 "전주" 또는 "결과"를 포함하면 전주 결과보고 영역, "금주" 또는 "계획"을 포함하면 금주 계획 영역입니다.
+응답 JSON에 반드시 원본 section 값을 그대로 포함하세요.
 
 검토 및 윤문 기준 (사용자 맞춤 설정 적용됨):
 1. [문체]: 명료한 개조식 (감정을 배제하고 사실 위주로 "~함", "~음" 형태로 짧고 명확하게 종결)
@@ -2417,7 +2426,7 @@ export default function App() {
 
 반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
 수정이 필요한 항목과 순서가 변경된 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
-[{ "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
+[{ "church": "교회이름", "id": 1, "section": "원본 section 값", "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
 
       let text = "";
 
@@ -4458,11 +4467,12 @@ const renderPreviewLines = () => {
                 </>
               )}
             </div>
+            {role !== 'church' && (
             <button
               onClick={() => {
                 if (isDownloadUnlocked) { checkWithAI(); return; }
-                openPasswordModal('AI 검토 & 내보내기', (pwd) => pwd === 'skmt0909!' || pwd === 'samu', (pwd) => {
-                  if (pwd === 'skmt0909!') {
+                openPasswordModal('AI 검토 & 내보내기', (pwd) => pwd === '20252027' || pwd === 'samu', (pwd) => {
+                  if (pwd === '20252027') {
                     setIsDownloadUnlocked(true);
                     sessionStorage.setItem('download_unlocked', '1');
                     checkWithAI();
@@ -4476,6 +4486,7 @@ const renderPreviewLines = () => {
               <Bot className="w-5 h-5" />
               AI 문맥 검토 및 내보내기
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -5155,48 +5166,83 @@ const renderPreviewLines = () => {
                   {aiCorrections.length > 0 ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-indigo-700 mb-4 font-medium bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                        <AlertCircle className="w-5 h-5" /> 
+                        <AlertCircle className="w-5 h-5" />
                         총 {aiCorrections.length}건의 수정 제안이 있습니다.
                       </div>
-                      {Object.entries(
-                        aiCorrections.reduce((acc, corr) => {
-                          if (!acc[corr.church]) acc[corr.church] = [];
-                          acc[corr.church].push(corr);
-                          return acc;
-                        }, {} as Record<string, any[]>)
-                      ).map(([churchName, corrs]) => (
-                        <div key={churchName} className="mb-6">
-                          <h4 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
-                            <BookOpen className="w-5 h-5 text-blue-600" /> {churchName}
-                          </h4>
-                          <div className="space-y-4 pl-2 border-l-2 border-blue-200">
-                            {(corrs as any[]).map((corr: any) => (
-                              <div key={`${corr.church}-${corr.id}`} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
-                                <div className="p-3 border-b border-slate-100 flex gap-4">
-                                  <div className="flex-1">
-                                    <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded mr-2">원본</span>
-                                    <span className="text-slate-600 line-through decoration-red-300">{corr.original}</span>
-                                  </div>
-                                  <div className="flex-1">
-                                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
-                                    <span className="text-slate-900 font-medium">{corr.corrected}</span>
-                                    {corr.level !== undefined && <span className="ml-2 text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">L{corr.level}</span>}
-                                  </div>
-                                </div>
-                                <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
-                                  <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
-                                  <button 
-                                    onClick={() => applyCorrection(corr.church, corr.id, corr.corrected, corr.level)}
-                                    className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
-                                  >
-                                    이 항목만 적용
-                                  </button>
-                                </div>
+                      {(() => {
+                        // Group by section first, then by church
+                        const bySectionChurch: Record<string, Record<string, any[]>> = {};
+                        aiCorrections.forEach(corr => {
+                          const sec = corr.section || '기타';
+                          if (!bySectionChurch[sec]) bySectionChurch[sec] = {};
+                          if (!bySectionChurch[sec][corr.church]) bySectionChurch[sec][corr.church] = [];
+                          bySectionChurch[sec][corr.church].push(corr);
+                        });
+                        const sectionOrder = Object.keys(bySectionChurch).sort((a, b) => {
+                          const isPrev = (s: string) => s.includes('전주') || s.includes('결과');
+                          const isCur = (s: string) => s.includes('금주') || s.includes('계획');
+                          if (isPrev(a) && !isPrev(b)) return -1;
+                          if (isCur(b) && !isCur(a)) return -1;
+                          return 0;
+                        });
+                        const getSectionColor = (sec: string) => {
+                          if (sec.includes('전주') || sec.includes('결과')) return { bg: 'bg-blue-600', light: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' };
+                          if (sec.includes('금주') || sec.includes('계획')) return { bg: 'bg-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' };
+                          return { bg: 'bg-slate-500', light: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600' };
+                        };
+                        return sectionOrder.map(sec => {
+                          const colors = getSectionColor(sec);
+                          const sectionLabel = sec.includes('전주') || sec.includes('결과')
+                            ? `전주 결과보고${appConfig?.solarDate ? ` (${appConfig.solarDate} 이전)` : ''}`
+                            : sec.includes('금주') || sec.includes('계획')
+                            ? `금주 계획${appConfig?.solarDate ? ` (${appConfig.solarDate} 주간)` : ''}`
+                            : sec;
+                          return (
+                            <div key={sec} className="mb-6">
+                              <div className={`flex items-center gap-2 ${colors.light} border ${colors.border} rounded-lg px-3 py-2 mb-3`}>
+                                <div className={`w-2 h-2 rounded-full ${colors.bg}`}></div>
+                                <h3 className={`text-sm font-black ${colors.text}`}>{sectionLabel}</h3>
+                                <span className={`ml-auto text-xs font-bold ${colors.text} opacity-70`}>
+                                  {Object.values(bySectionChurch[sec]).flat().length}건
+                                </span>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                              {Object.entries(bySectionChurch[sec]).map(([churchName, corrs]) => (
+                                <div key={churchName} className="mb-4 ml-2">
+                                  <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                    <BookOpen className="w-4 h-4 text-slate-400" /> {churchName}
+                                  </h4>
+                                  <div className="space-y-3 pl-2 border-l-2 border-slate-200">
+                                    {(corrs as any[]).map((corr: any) => (
+                                      <div key={`${corr.church}-${corr.id}`} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
+                                        <div className="p-3 border-b border-slate-100 flex gap-4">
+                                          <div className="flex-1">
+                                            <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded mr-2">원본</span>
+                                            <span className="text-slate-600 line-through decoration-red-300">{corr.original}</span>
+                                          </div>
+                                          <div className="flex-1">
+                                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
+                                            <span className="text-slate-900 font-medium">{corr.corrected}</span>
+                                            {corr.level !== undefined && <span className="ml-2 text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">L{corr.level}</span>}
+                                          </div>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
+                                          <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
+                                          <button
+                                            onClick={() => applyCorrection(corr.church, corr.id, corr.corrected, corr.level)}
+                                            className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
+                                          >
+                                            이 항목만 적용
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 text-center">
