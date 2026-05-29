@@ -280,7 +280,7 @@ export default function App() {
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
   const [parishStats, setParishStats] = useState<Record<string, 'empty' | 'draft' | 'submitted'>>({});
 
-  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice'>('report');
+  const [activeTab, setActiveTab] = useState<'report' | 'association' | 'notice_write' | 'notice' | 'admin_console'>('report');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeCategory, setNoticeCategory] = useState('공지');
   const [noticePdfUrl, setNoticePdfUrl] = useState<string | null>(null);
@@ -290,7 +290,7 @@ export default function App() {
 
   const handleNoticeWriteTab = () => {
     if (activeTab === 'notice_write') return;
-    openPasswordModal('공지 작성 모드', (pwd) => pwd === 'chongmu2027', () => {
+    withAdminBypass('공지 작성 모드', (pwd) => pwd === 'chongmu2027', () => {
       setActiveTab('notice_write');
       setReportData([]);
       setNoticeTitle('');
@@ -300,7 +300,7 @@ export default function App() {
 
   const handleAssociationTab = () => {
     if (activeTab === 'association') return;
-    openPasswordModal('협회 보고 모드', (pwd) => pwd === '20252027', () => {
+    withAdminBypass('협회 보고 모드', (pwd) => pwd === '20252027', () => {
       setActiveTab('association');
       setParish('협회');
       setChurch(PARISH_CHURCH_MAP['협회'][0]);
@@ -406,6 +406,12 @@ export default function App() {
     setPasswordModalCallback(() => checkFn);
     setPasswordModalOnSuccess(() => onSuccess);
     setShowPasswordModal(true);
+  };
+
+  // 관리자 모드에서는 비밀번호 모달 없이 바로 실행
+  const withAdminBypass = (title: string, checkFn: (pwd: string) => boolean, onSuccess: (pwd: string) => void) => {
+    if (role === 'admin') { onSuccess('admin'); return; }
+    openPasswordModal(title, checkFn, onSuccess);
   };
 
   const submitPasswordModal = () => {
@@ -2061,7 +2067,7 @@ export default function App() {
 
   const executeReset = async (targets: { parish: string; church: string }[], requirePassword: boolean, skipPasswordCheck = false) => {
     if (requirePassword && !skipPasswordCheck) {
-      openPasswordModal('초기화 비밀번호 확인', (pwd) => pwd === 'chongmu2027', () => {
+      withAdminBypass('초기화 비밀번호 확인', (pwd) => pwd === 'chongmu2027', () => {
         executeReset(targets, false, true);
       });
       return;
@@ -3027,7 +3033,7 @@ const renderPreviewLines = () => {
       return;
     }
 
-    openPasswordModal(`[${label}] 데이터 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
+    withAdminBypass(`[${label}] 데이터 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
       const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
       for (const p of targetParishes) {
         for (const c of PARISH_CHURCH_MAP[p]) {
@@ -3176,12 +3182,12 @@ const renderPreviewLines = () => {
                </span>
              )}
            </button>
-           {role === 'admin' && (
-            <button 
-              onClick={() => setActiveTab('admin_console')} 
+           {(role === 'admin' || role === 'manager') && (
+            <button
+              onClick={() => setActiveTab('admin_console')}
               className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'admin_console' ? 'bg-purple-600 text-white font-extrabold shadow-purple-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
             >
-              <Settings className="w-4 h-4"/> 관리자 콘솔
+              <Settings className="w-4 h-4"/> 제출현황
             </button>
            )}
         </div>
@@ -3210,18 +3216,18 @@ const renderPreviewLines = () => {
           </button>
           {/* 관리자 (admin 전용) */}
           {role === 'admin' && (
-            <>
-              <button onClick={handleAssociationTab} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'association' ? 'text-indigo-600' : 'text-slate-400'}`}>
-                {activeTab === 'association' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-indigo-600" />}
-                <BookOpen className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'association' ? 'scale-110' : ''}`}/>
-                <span className="text-[10px] font-bold">협회</span>
-              </button>
-              <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'admin_console' ? 'text-purple-600' : 'text-slate-400'}`}>
-                {activeTab === 'admin_console' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-purple-600" />}
-                <Settings className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'admin_console' ? 'scale-110' : ''}`}/>
-                <span className="text-[10px] font-bold">관리자</span>
-              </button>
-            </>
+            <button onClick={handleAssociationTab} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'association' ? 'text-indigo-600' : 'text-slate-400'}`}>
+              {activeTab === 'association' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-indigo-600" />}
+              <BookOpen className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'association' ? 'scale-110' : ''}`}/>
+              <span className="text-[10px] font-bold">협회</span>
+            </button>
+          )}
+          {(role === 'admin' || role === 'manager') && (
+            <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'admin_console' ? 'text-purple-600' : 'text-slate-400'}`}>
+              {activeTab === 'admin_console' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-purple-600" />}
+              <Settings className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'admin_console' ? 'scale-110' : ''}`}/>
+              <span className="text-[10px] font-bold">제출현황</span>
+            </button>
           )}
           {/* 모드변경 */}
           <button onClick={() => { localStorage.removeItem('APP_ROLE'); localStorage.removeItem('APP_PARISH'); localStorage.removeItem('APP_CHURCH'); setRole(null); }} className="flex flex-col items-center pt-2 pb-3 flex-1 text-slate-400 hover:text-red-500 transition-colors">
@@ -3317,7 +3323,7 @@ const renderPreviewLines = () => {
                 <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
               ) : (
                 <button
-                  onClick={() => openPasswordModal('공지 전체 삭제', (pwd) => pwd === 'chongmu2027', async () => {
+                  onClick={() => withAdminBypass('공지 전체 삭제', (pwd) => pwd === 'chongmu2027', async () => {
                     await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
                     setNotices([]);
                     setActiveNotice(null);
@@ -3780,7 +3786,7 @@ const renderPreviewLines = () => {
                   {role === 'manager' && (
                     <button
                       onClick={() => {
-                        openPasswordModal('교구 Word 내보내기', (pwd) => pwd === 'chongmu2027' || pwd === 'samu', (pwd) => {
+                        withAdminBypass('교구 Word 내보내기', (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
                           exportToWord();
                         });
                       }}
@@ -4470,7 +4476,7 @@ const renderPreviewLines = () => {
             {role !== 'church' && (
             <button
               onClick={() => {
-                if (isDownloadUnlocked) { checkWithAI(); return; }
+                if (role === 'admin' || isDownloadUnlocked) { checkWithAI(); return; }
                 openPasswordModal('AI 검토 & 내보내기', (pwd) => pwd === '20252027' || pwd === 'samu', (pwd) => {
                   if (pwd === '20252027') {
                     setIsDownloadUnlocked(true);
@@ -4638,7 +4644,7 @@ const renderPreviewLines = () => {
                             <button
                               onClick={() => {
                                 // 해당 교구로 전환하여 Word 내보내기
-                                openPasswordModal(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
+                                withAdminBypass(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
                                   setActiveTab('report');
                                   setParish(p);
                                   setChurch(PARISH_CHURCH_MAP[p][0]);
@@ -4694,7 +4700,7 @@ const renderPreviewLines = () => {
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      openPasswordModal(`[${c}] 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
+                                      withAdminBypass(`[${c}] 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
                                         const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
                                         const key = `report_${p}_${c}`;
                                         localStorage.setItem(key, JSON.stringify(defaultData));
