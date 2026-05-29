@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { isBrowserAIReady, initBrowserAI, runBrowserAI } from './browserAI';
 import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
@@ -240,6 +241,9 @@ export default function App() {
   const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
   const [isCloudAiAvailable, setIsCloudAiAvailable] = useState(false);
+  const [isBrowserAiReady, setIsBrowserAiReady] = useState(false);
+  const [isBrowserAiLoading, setIsBrowserAiLoading] = useState(false);
+  const [browserAiProgress, setBrowserAiProgress] = useState(0);
 
   // 로컬 서버 자동 감지 (마운트 시 ping)
   useEffect(() => {
@@ -862,7 +866,7 @@ export default function App() {
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const startParishAiReview = async () => {
-    if (!isLocalMode && !isCloudAiAvailable) return;
+    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
     setIsAdminCheckingAI(true);
     setAdminCompilationProgress(`${getDisplayParish(adminConsoleParish)} 보고서 취합 중...`);
     setAdminAiCorrections(null);
@@ -909,24 +913,30 @@ export default function App() {
 --- 교구 보고서 ---
 ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 
-      let res: Response;
+      let parishResponseText: string;
       if (isLocalMode) {
         const serverUrl = getLocalServerUrl();
-        res = await localFetch(`${serverUrl}/api/claude-chat`, {
+        const res = await localFetch(`${serverUrl}/api/claude-chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt })
         });
+        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+        const resData = await res.json();
+        parishResponseText = resData.text ?? '';
+      } else if (isCloudAiAvailable) {
+        const res = await fetch('/api/ai-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+        const resData = await res.json();
+        parishResponseText = resData.text ?? '';
       } else {
-        res = await fetch('/api/ai-review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
+        parishResponseText = await runBrowserAI(prompt);
       }
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      const resData = await res.json();
-      const jsonMatch = resData.text?.match(/\[[\s\S]*\]/);
+      const jsonMatch = parishResponseText?.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const corrections = JSON.parse(jsonMatch[0]);
         setAdminAiCorrections(corrections);
@@ -2422,9 +2432,25 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
     toast.success(`${newData.length}개 항목이 적용되었습니다.`);
   };
 
+  // ── 브라우저 AI 초기화 ──────────────────────────────────────────────────
+  const downloadBrowserAI = async () => {
+    if (isBrowserAiLoading) return;
+    setIsBrowserAiLoading(true);
+    setBrowserAiProgress(0);
+    try {
+      await initBrowserAI((pct) => setBrowserAiProgress(pct));
+      setIsBrowserAiReady(true);
+      toast.success('AI 모델 준비 완료! 이제 인터넷 없이도 AI 검토 사용 가능합니다.');
+    } catch (err: any) {
+      toast.error(`AI 모델 다운로드 실패: ${err.message}`);
+    } finally {
+      setIsBrowserAiLoading(false);
+    }
+  };
+
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   const checkWithLocalClaude = async () => {
-    if (!isLocalMode && !isCloudAiAvailable) return;
+    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
     setIsCheckingAI(true);
     setAiCorrections(null);
     try {
@@ -2450,24 +2476,31 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 --- 보고서 내용 ---
 ${reportText}`;
 
-      let res: Response;
+      let responseText: string;
       if (isLocalMode) {
         const serverUrl = getLocalServerUrl();
-        res = await localFetch(`${serverUrl}/api/claude-chat`, {
+        const res = await localFetch(`${serverUrl}/api/claude-chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt })
         });
+        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+        const data = await res.json();
+        responseText = data.text ?? '';
+      } else if (isCloudAiAvailable) {
+        const res = await fetch('/api/ai-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+        const data = await res.json();
+        responseText = data.text ?? '';
       } else {
-        res = await fetch('/api/ai-review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
+        responseText = await runBrowserAI(prompt);
       }
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      const data = await res.json();
-      const jsonMatch = data.text?.match(/\[[\s\S]*\]/);
+
+      const jsonMatch = responseText?.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const corrections = JSON.parse(jsonMatch[0]);
         setAiCorrections(corrections);
@@ -3479,7 +3512,7 @@ const renderPreviewLines = () => {
                   </button>
                 )}
                 {/* AI 검토 — 로컬 모드 + 사무장/관리자 전용 */}
-                {(isLocalMode || isCloudAiAvailable) && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
+                {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
                   <button
                     onClick={checkWithLocalClaude}
                     disabled={isCheckingAI}
@@ -4866,8 +4899,8 @@ const renderPreviewLines = () => {
                 </button>
               </div>
 
-              {/* Parish AI Review — 로컬 or 클라우드 AI */}
-              {(isLocalMode || isCloudAiAvailable) && (
+              {/* Parish AI Review — 로컬 or 클라우드 or 브라우저 AI */}
+              {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && (
                 <button
                   onClick={startParishAiReview}
                   disabled={isAdminCheckingAI || !!adminCompilationProgress}
@@ -4992,10 +5025,43 @@ const renderPreviewLines = () => {
                       }
                     }}
                   />
-                  <span className={`text-[10px] font-bold shrink-0 ${(isLocalMode || isCloudAiAvailable) ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    {isLocalMode ? '🟢 로컬 AI' : isCloudAiAvailable ? '🟢 클라우드 AI' : '⚪ AI 꺼짐'}
+                  <span className={`text-[10px] font-bold shrink-0 ${(isLocalMode || isCloudAiAvailable || isBrowserAiReady) ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {isLocalMode ? '🟢 로컬 AI' : isCloudAiAvailable ? '🟢 클라우드 AI' : isBrowserAiReady ? '🟢 브라우저 AI' : '⚪ AI 꺼짐'}
                   </span>
                 </div>
+
+                {/* 브라우저 AI 다운로드 — PC/API 없이 사용 */}
+                {!isLocalMode && !isCloudAiAvailable && (
+                  <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+                    {isBrowserAiReady ? (
+                      <div className="flex items-center gap-2 text-xs text-violet-700 font-bold">
+                        <Bot className="w-3.5 h-3.5" /> 브라우저 AI 사용 중 (오프라인 가능)
+                      </div>
+                    ) : isBrowserAiLoading ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 text-xs text-violet-700 font-bold">
+                          <Bot className="w-3.5 h-3.5 animate-spin" /> AI 모델 다운로드 중... {browserAiProgress}%
+                        </div>
+                        <div className="w-full bg-violet-100 rounded-full h-1.5">
+                          <div className="bg-violet-500 h-1.5 rounded-full transition-all" style={{ width: `${browserAiProgress}%` }} />
+                        </div>
+                        <div className="text-[10px] text-violet-500">최초 1회만 다운로드 (약 300MB). 이후 오프라인 사용 가능.</div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="text-xs text-violet-700 font-bold">브라우저 AI 설치 (PC·API 불필요)</div>
+                        <div className="text-[10px] text-violet-500">최초 1회 약 300MB 다운로드. 이후 인터넷 없이도 AI 검토 가능.</div>
+                        <button
+                          onClick={downloadBrowserAI}
+                          className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white font-bold transition-colors"
+                        >
+                          <Bot className="w-3.5 h-3.5" /> AI 모델 다운로드
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border text-xs ${
                   driveStatus?.authenticated ? 'bg-emerald-50 border-emerald-200' :
                   driveStatus?.configured ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'

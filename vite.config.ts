@@ -15,6 +15,10 @@ export default defineConfig(({mode}) => {
         devOptions: {
           enabled: true
         },
+        workbox: {
+          maximumFileSizeToCacheInBytes: 30 * 1024 * 1024, // 30MB — ONNX WASM 포함
+          globIgnores: ['**/ort-wasm**'],
+        },
         manifest: {
           name: '교구 주간업무보고 시스템',
           short_name: '주간보고',
