@@ -382,6 +382,8 @@ export default function App() {
   const [adminAutoRefresh, setAdminAutoRefresh] = useState(false);
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
   const [adminSelectedCorrections, setAdminSelectedCorrections] = useState<Record<string, boolean>>({});
+  const [showAiProgressModal, setShowAiProgressModal] = useState(false);
+  const [aiProgressSteps, setAiProgressSteps] = useState<{church: string; status: 'waiting' | 'loading' | 'done' | 'error'}[]>([]);
 
   // Google Drive 연동 상태
   const [driveStatus, setDriveStatus] = useState<{
@@ -876,42 +878,28 @@ export default function App() {
     return () => clearInterval(interval);
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
-  const startParishAiReview = async () => {
-    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
-    setIsAdminCheckingAI(true);
-    setAdminCompilationProgress(`${getDisplayParish(adminConsoleParish)} 보고서 취합 중...`);
-    setAdminAiCorrections(null);
+  const callAI = async (prompt: string): Promise<string> => {
+    if (isLocalMode) {
+      const serverUrl = getLocalServerUrl();
+      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+      return (await res.json()).text ?? '';
+    } else if (isCloudAiAvailable) {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+      return (await res.json()).text ?? '';
+    } else {
+      return await runBrowserAI(prompt);
+    }
+  };
 
-    try {
-      const churches = PARISH_CHURCH_MAP[adminConsoleParish] || [];
-      const allPayload: {church: string; id: number; text: string}[] = [];
-
-      for (const c of churches) {
-        let data: ReportItem[] = [];
-        if (adminConsoleParish === parish && c === church) {
-          data = getCleanData(reportData);
-        } else {
-          const report = await getReportDataFor(adminConsoleParish, c);
-          data = report?.data ? getCleanData(report.data) : [];
-        }
-        data.filter(item => item.text?.trim()).forEach(item => {
-          allPayload.push({ church: c, id: item.id, text: item.text });
-        });
-      }
-
-      if (allPayload.length === 0) {
-        toast.warning("취합된 보고서 내용이 없습니다.");
-        setAdminCompilationProgress('');
-        setIsAdminCheckingAI(false);
-        return;
-      }
-
-      setAdminCompilationProgress(`${allPayload.length}개 항목 Claude AI 검토 중...`);
-
-      const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
-아래는 ${getDisplayParish(adminConsoleParish)} 교구 각 교회의 이번 주 업무보고입니다.
-
-━━━━ 보고서 서식 기준 ━━━━
+  const AI_FORMAT_RULES = `━━━━ 보고서 서식 기준 ━━━━
 
 【계층 구조】
  L0 대항목: 로마 숫자 구분 제목
@@ -938,59 +926,82 @@ export default function App() {
 【맞춤법·문법】
  - 맞춤법·띄어쓰기 오류 수정
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+  const startParishAiReview = async () => {
+    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
+
+    const churches = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
+    if (churches.length === 0) { toast.warning('교구 교회 목록이 없습니다.'); return; }
+
+    // 진행 모달 열기
+    setAiProgressSteps(churches.map(c => ({ church: c, status: 'waiting' })));
+    setShowAiProgressModal(true);
+    setIsAdminCheckingAI(true);
+    setAdminAiCorrections(null);
+    setAdminCompilationProgress('');
+
+    const allCorrections: any[] = [];
+
+    for (let i = 0; i < churches.length; i++) {
+      const c = churches[i];
+
+      // 현재 교회 → loading
+      setAiProgressSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'loading' } : s));
+
+      try {
+        let data: ReportItem[] = [];
+        if (adminConsoleParish === parish && c === church) {
+          data = getCleanData(reportData);
+        } else {
+          const report = await getReportDataFor(adminConsoleParish, c);
+          data = report?.data ? getCleanData(report.data) : [];
+        }
+
+        const reportText = data.filter(item => item.text?.trim()).map(item => {
+          return `${'  '.repeat(item.level)}${item.text}`.trimEnd();
+        }).join('\n');
+
+        if (!reportText.trim()) {
+          setAiProgressSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'done' } : s));
+          continue;
+        }
+
+        const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
+아래는 [${getDisplayParish(adminConsoleParish)}] [${c}]의 이번 주 업무보고입니다.
+
+${AI_FORMAT_RULES}
 
 수정이 필요한 항목을 다음 JSON 형식으로만 반환 (JSON만, 설명 없이):
-[{"parish": "${adminConsoleParish}", "church": "교회명", "id": 숫자, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
+[{"parish": "${adminConsoleParish}", "church": "${c}", "id": 숫자, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
 수정 불필요 시 [] 반환.
 
---- 교구 보고서 ---
-${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
+--- 보고서 내용 ---
+${reportText}`;
 
-      let parishResponseText: string;
-      if (isLocalMode) {
-        const serverUrl = getLocalServerUrl();
-        const res = await localFetch(`${serverUrl}/api/claude-chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-        const resData = await res.json();
-        parishResponseText = resData.text ?? '';
-      } else if (isCloudAiAvailable) {
-        const res = await fetch('/api/ai-review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-        const resData = await res.json();
-        parishResponseText = resData.text ?? '';
-      } else {
-        parishResponseText = await runBrowserAI(prompt);
+        const responseText = await callAI(prompt);
+        const jsonMatch = responseText?.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const corrections = JSON.parse(jsonMatch[0]);
+          allCorrections.push(...corrections);
+        }
+
+        setAiProgressSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'done' } : s));
+      } catch (err: any) {
+        console.error(`[${c}] AI 검토 실패:`, err.message);
+        setAiProgressSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error' } : s));
       }
-      const jsonMatch = parishResponseText?.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const corrections = JSON.parse(jsonMatch[0]);
-        setAdminAiCorrections(corrections);
-        const initialSelected: Record<string, boolean> = {};
-        corrections.forEach((c: any) => { initialSelected[`${c.parish}_${c.church}_${c.id}`] = true; });
-        setAdminSelectedCorrections(initialSelected);
-        if (corrections.length === 0) toast.success(`${getDisplayParish(adminConsoleParish)} 검토 완료 — 수정 불필요!`);
-        else toast.info(`${corrections.length}개 수정 제안`);
-      } else {
-        setAdminAiCorrections([]);
-        toast.success('AI 검토 완료 — 수정 제안이 없습니다.');
-      }
-      setAdminCompilationProgress('');
-    } catch (err: any) {
-      console.error(err);
-      toast.error(`AI 검토 실패: ${err.message}`);
-      setAdminCompilationProgress('');
-    } finally {
-      setIsAdminCheckingAI(false);
     }
+
+    setAdminAiCorrections(allCorrections);
+    const initialSelected: Record<string, boolean> = {};
+    allCorrections.forEach((c: any) => { initialSelected[`${c.parish}_${c.church}_${c.id}`] = true; });
+    setAdminSelectedCorrections(initialSelected);
+
+    if (allCorrections.length === 0) toast.success(`${getDisplayParish(adminConsoleParish)} 검토 완료 — 수정 불필요!`);
+    else toast.info(`총 ${allCorrections.length}개 수정 제안`);
+
+    setIsAdminCheckingAI(false);
   };
 
   const toggleAdminCorrectionSelected = (parishName: string, churchName: string, id: number) => {
@@ -2497,35 +2508,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
       const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
 아래는 [${getDisplayParish(parish)}] [${getDisplayChurch(church)}]의 이번 주 업무보고입니다.
 
-━━━━ 보고서 서식 기준 ━━━━
-
-【계층 구조】
- L0 대항목: 로마 숫자 구분 제목
-   예) I. 전주보고 / II. 금주계획 / III. 기타사항
- L1 중항목: 번호 + 사역·행사명
-   예) 1. 주일예배 / 2. 수요예배 / 3. 구역모임 / 4. 심방
- L2 소항목: 세부 정보 (아래 순서 준수)
-   ① 일시  ② 장소  ③ 대상/참석자  ④ 인원
-   ⑤ 주제/제목  ⑥ 주요내용  ⑦ 결과/특이사항
-   ⑧ 향후계획  ⑨ 사진 (항상 맨 마지막)
-
-【전주보고 / 금주계획 구분】
- - "지난 주", "지난 주일", "~했음", "~완료", 과거형 날짜 → 전주보고
- - "이번 주", "예정", "~할 예정", 미래형 날짜 → 금주계획
- - 두 내용이 같은 항목에 혼재하면 분리 제안
-
-【표현 통일】
- - "날짜" → "일시" / "참가자·참여자·출석자" → "참석자"
- - "참가인원·출석인원" → "인원" / "세부내용·사항" → "주요내용"
- - "예정사항·향후사항" → "향후계획"
- - 항목형 표기 통일: "항목명: 내용" 형태
-   예) "일시: 2026년 5월 25일(주일) 오전 11시"
- - 숫자 표기 통일: "이십명" → "20명"
-
-【맞춤법·문법】
- - 맞춤법·띄어쓰기 오류 수정
-
-━━━━━━━━━━━━━━━━━━━━━━━━
+${AI_FORMAT_RULES}
 
 수정이 필요한 항목을 다음 JSON 형식으로만 반환 (JSON만, 설명 없이):
 [{"id": 1, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
@@ -2534,30 +2517,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 --- 보고서 내용 ---
 ${reportText}`;
 
-      let responseText: string;
-      if (isLocalMode) {
-        const serverUrl = getLocalServerUrl();
-        const res = await localFetch(`${serverUrl}/api/claude-chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-        const data = await res.json();
-        responseText = data.text ?? '';
-      } else if (isCloudAiAvailable) {
-        const res = await fetch('/api/ai-review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-        const data = await res.json();
-        responseText = data.text ?? '';
-      } else {
-        responseText = await runBrowserAI(prompt);
-      }
-
+      const responseText = await callAI(prompt);
       const jsonMatch = responseText?.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const corrections = JSON.parse(jsonMatch[0]);
@@ -5803,6 +5763,53 @@ const renderPreviewLines = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 교구 AI 검토 진행 모달 */}
+      {showAiProgressModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-purple-50 rounded-t-2xl">
+              <h2 className="text-base font-bold text-purple-800 flex items-center gap-2">
+                <Bot className="w-4 h-4 animate-spin" /> {getDisplayParish(adminConsoleParish)} 교구 AI 검토
+              </h2>
+              {!isAdminCheckingAI && (
+                <button onClick={() => setShowAiProgressModal(false)} className="text-slate-400 hover:text-slate-600 rounded-full p-1.5 hover:bg-slate-200 transition-colors"><X className="w-4 h-4" /></button>
+              )}
+            </div>
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
+              {aiProgressSteps.map((step, i) => (
+                <div key={i} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                  step.status === 'loading' ? 'bg-purple-50 border-purple-300 text-purple-700' :
+                  step.status === 'done'    ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                  step.status === 'error'   ? 'bg-red-50 border-red-200 text-red-600' :
+                  'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  {step.status === 'loading' && <Bot className="w-4 h-4 shrink-0 animate-spin text-purple-500" />}
+                  {step.status === 'done'    && <Check className="w-4 h-4 shrink-0 text-emerald-500" />}
+                  {step.status === 'error'   && <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />}
+                  {step.status === 'waiting' && <Clock className="w-4 h-4 shrink-0 text-slate-300" />}
+                  <span className="flex-1">{step.church}</span>
+                  <span className="text-[10px]">
+                    {step.status === 'loading' ? '검토 중...' :
+                     step.status === 'done'    ? '완료' :
+                     step.status === 'error'   ? '실패' : '대기'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {!isAdminCheckingAI && (
+              <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
+                <button
+                  onClick={() => setShowAiProgressModal(false)}
+                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm transition-colors"
+                >
+                  결과 확인
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
