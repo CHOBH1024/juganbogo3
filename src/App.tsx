@@ -961,7 +961,7 @@ export default function App() {
         }
 
         const reportText = data.filter(item => item.text?.trim()).map(item => {
-          return `${'  '.repeat(item.level)}${item.text}`.trimEnd();
+          return `[L${item.level}] ${'  '.repeat(item.level)}${item.text}`.trimEnd();
         }).join('\n');
 
         if (!reportText.trim()) {
@@ -971,11 +971,13 @@ export default function App() {
 
         const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
 아래는 [${getDisplayParish(adminConsoleParish)}] [${c}]의 이번 주 업무보고입니다.
+각 항목 앞에 [L0]/[L1]/[L2] 계층 수준이 표시되어 있습니다.
 
 ${AI_FORMAT_RULES}
 
 수정이 필요한 항목을 다음 JSON 형식으로만 반환 (JSON만, 설명 없이):
-[{"parish": "${adminConsoleParish}", "church": "${c}", "id": 숫자, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
+[{"parish": "${adminConsoleParish}", "church": "${c}", "id": 숫자, "original": "원본텍스트(L태그 제외)", "corrected": "수정본", "newLevel": 0, "reason": "수정사유"}]
+- newLevel: 계층이 바뀌어야 할 때만 포함 (0=L0, 1=L1, 2=L2). 계층 변경 없으면 생략.
 수정 불필요 시 [] 반환.
 
 --- 보고서 내용 ---
@@ -2503,17 +2505,19 @@ ${reportText}`;
     try {
       const cleanData = getCleanData(reportData);
       const reportText = cleanData.map(item => {
-        const indent = '  '.repeat(item.level);
-        return `${indent}${item.text || ''}`.trimEnd();
+        return `[L${item.level}] ${'  '.repeat(item.level)}${item.text || ''}`.trimEnd();
       }).filter(l => l.trim()).join('\n');
 
       const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
 아래는 [${getDisplayParish(parish)}] [${getDisplayChurch(church)}]의 이번 주 업무보고입니다.
+각 항목 앞에 [L0]/[L1]/[L2] 계층 수준이 표시되어 있습니다.
 
 ${AI_FORMAT_RULES}
 
 수정이 필요한 항목을 다음 JSON 형식으로만 반환 (JSON만, 설명 없이):
-[{"id": 1, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
+[{"id": 1, "original": "원본텍스트(L태그 제외)", "corrected": "수정본", "newLevel": 0, "reason": "수정사유"}]
+- newLevel: 계층이 바뀌어야 할 때만 포함 (0=L0, 1=L1, 2=L2). 계층 변경 없으면 생략.
+- 텍스트 변경 없이 계층만 바꾸는 경우: original == corrected, newLevel만 지정.
 수정 불필요 시 [] 만 반환.
 
 --- 보고서 내용 ---
@@ -2545,10 +2549,15 @@ ${reportText}`;
     }
   };
 
-  const applyAiCorrection = (original: string, corrected: string) => {
-    setReportData(prev => prev.map(item =>
-      item.text === original ? { ...item, text: corrected } : item
-    ));
+  const applyAiCorrection = (original: string, corrected: string, newLevel?: number) => {
+    setReportData(prev => prev.map(item => {
+      if (item.text === original) {
+        const updated: ReportItem = { ...item, text: corrected };
+        if (newLevel !== undefined) updated.level = newLevel;
+        return updated;
+      }
+      return item;
+    }));
     setAiCorrections(prev => prev ? prev.filter(c => c.original !== original) : null);
     toast.success('수정이 적용되었습니다.');
   };
@@ -2558,7 +2567,14 @@ ${reportText}`;
     setReportData(prev => {
       let updated = [...prev];
       aiCorrections.forEach(c => {
-        updated = updated.map(item => item.text === c.original ? { ...item, text: c.corrected } : item);
+        updated = updated.map(item => {
+          if (item.text === c.original) {
+            const u: ReportItem = { ...item, text: c.corrected };
+            if (c.newLevel !== undefined) u.level = c.newLevel;
+            return u;
+          }
+          return item;
+        });
       });
       return updated;
     });
@@ -5812,7 +5828,14 @@ const renderPreviewLines = () => {
                   setReportData(prev => {
                     let updated = [...prev];
                     selected.forEach(c => {
-                      updated = updated.map(item => item.text === c.original ? { ...item, text: c.corrected } : item);
+                      updated = updated.map(item => {
+                        if (item.text === c.original) {
+                          const u: ReportItem = { ...item, text: c.corrected };
+                          if (c.newLevel !== undefined) u.level = c.newLevel;
+                          return u;
+                        }
+                        return item;
+                      });
                     });
                     return updated;
                   });
