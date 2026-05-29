@@ -223,6 +223,20 @@ export default function App() {
 
   const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
+
+  // 로컬 서버 자동 감지 (마운트 시 ping)
+  useEffect(() => {
+    const detect = async () => {
+      try {
+        const res = await fetch(`${getLocalServerUrl()}/api/ping`, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          localStorage.setItem('IS_LOCAL_MODE', 'true');
+          setIsLocalMode(true);
+        }
+      } catch {}
+    };
+    detect();
+  }, []);
   const [parish, setParish] = useState(() => localStorage.getItem('APP_PARISH') || "천원특별");
   const [church, setChurch] = useState(() => localStorage.getItem('APP_CHURCH') || PARISH_CHURCH_MAP["천원특별"][0]);
   
@@ -264,6 +278,10 @@ export default function App() {
   const [quickEntryMode, setQuickEntryMode] = useState(false);
   const [quickEntryText, setQuickEntryText] = useState('');
   const [simpleMode, setSimpleMode] = useState(false);
+
+  // 로컬 Claude AI 검토 상태
+  const [isCheckingAI, setIsCheckingAI] = useState(false);
+  const [aiCorrections, setAiCorrections] = useState<{id: number; original: string; corrected: string; reason: string}[] | null>(null);
 
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string>('');
@@ -2403,6 +2421,84 @@ export default function App() {
     toast.success(`${newData.length}개 항목이 적용되었습니다.`);
   };
 
+  // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
+  const checkWithLocalClaude = async () => {
+    if (!isLocalMode) return;
+    setIsCheckingAI(true);
+    setAiCorrections(null);
+    try {
+      const cleanData = getCleanData(reportData);
+      const reportText = cleanData.map(item => {
+        const indent = '  '.repeat(item.level);
+        return `${indent}${item.text || ''}`.trimEnd();
+      }).filter(l => l.trim()).join('\n');
+
+      const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
+
+아래는 [${getDisplayParish(parish)}] [${getDisplayChurch(church)}]의 이번 주 업무보고 내용입니다.
+
+다음 사항을 검토해 주세요:
+1. 맞춤법·문법 오류
+2. 전주(지난 주) 내용과 금주(이번 주) 내용이 올바르게 구분되어 있는지
+3. 어색하거나 불명확한 표현 개선
+
+수정이 필요한 항목을 다음 JSON 형식으로만 반환하세요 (다른 텍스트 없이 JSON만):
+[{"id": 1, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
+수정 불필요 시 빈 배열 [] 만 반환.
+
+--- 보고서 내용 ---
+${reportText}`;
+
+      const serverUrl = getLocalServerUrl();
+      const res = await fetch(`${serverUrl}/api/claude-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+      const data = await res.json();
+      const jsonMatch = data.text?.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const corrections = JSON.parse(jsonMatch[0]);
+        setAiCorrections(corrections);
+        if (corrections.length === 0) {
+          toast.success('수정이 필요한 항목이 없습니다! 완벽합니다 🎉');
+        } else {
+          toast.info(`${corrections.length}개 수정 제안이 있습니다.`);
+        }
+      } else {
+        setAiCorrections([]);
+        toast.success('AI 검토 완료 — 수정 제안이 없습니다.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`AI 검토 실패: ${err.message}`);
+    } finally {
+      setIsCheckingAI(false);
+    }
+  };
+
+  const applyAiCorrection = (original: string, corrected: string) => {
+    setReportData(prev => prev.map(item =>
+      item.text === original ? { ...item, text: corrected } : item
+    ));
+    setAiCorrections(prev => prev ? prev.filter(c => c.original !== original) : null);
+    toast.success('수정이 적용되었습니다.');
+  };
+
+  const applyAllAiCorrections = () => {
+    if (!aiCorrections) return;
+    setReportData(prev => {
+      let updated = [...prev];
+      aiCorrections.forEach(c => {
+        updated = updated.map(item => item.text === c.original ? { ...item, text: c.corrected } : item);
+      });
+      return updated;
+    });
+    toast.success(`${aiCorrections.length}개 수정이 모두 적용되었습니다.`);
+    setAiCorrections(null);
+  };
+
   const exportToWord = async () => {
     const churches = PARISH_CHURCH_MAP[parish];
     let allChildren: (Paragraph | Table)[] = [];
@@ -3372,6 +3468,18 @@ const renderPreviewLines = () => {
                     {quickEntryMode ? '편집기 복귀' : '붙여넣기'}
                   </button>
                 )}
+                {/* AI 검토 — 로컬 모드 + 사무장/관리자 전용 */}
+                {isLocalMode && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
+                  <button
+                    onClick={checkWithLocalClaude}
+                    disabled={isCheckingAI}
+                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${isCheckingAI ? 'bg-purple-100 border-purple-300 text-purple-500 cursor-wait' : 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'}`}
+                    title="Claude AI로 맞춤법·전주금주 구분 검토"
+                  >
+                    <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
+                    {isCheckingAI ? '검토 중...' : 'AI 검토'}
+                  </button>
+                )}
                 {/* 보고서 전체 텍스트 복사 */}
                 {activeTab !== 'notice_write' && (
                   <button
@@ -3575,6 +3683,57 @@ const renderPreviewLines = () => {
           </div>
 
 
+
+          {/* AI 교정 결과 패널 */}
+          {aiCorrections && aiCorrections.length > 0 && (
+            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-purple-100 border-b border-purple-200">
+                <span className="text-sm font-black text-purple-800 flex items-center gap-1.5">
+                  <Bot className="w-4 h-4" /> AI 수정 제안 ({aiCorrections.length}건)
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={applyAllAiCorrections}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors"
+                  >
+                    전체 적용
+                  </button>
+                  <button
+                    onClick={() => setAiCorrections(null)}
+                    className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-500 text-xs font-bold rounded-lg border border-slate-200 transition-colors"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+              <div className="divide-y divide-purple-100 max-h-72 overflow-y-auto">
+                {aiCorrections.map((c, i) => (
+                  <div key={i} className="flex items-start gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex gap-2 text-xs mb-1">
+                        <span className="text-red-600 line-through break-all">{c.original}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="text-emerald-700 font-bold break-all">{c.corrected}</span>
+                      </div>
+                      {c.reason && <p className="text-[10px] text-purple-600">{c.reason}</p>}
+                    </div>
+                    <button
+                      onClick={() => applyAiCorrection(c.original, c.corrected)}
+                      className="shrink-0 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-colors"
+                    >
+                      적용
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {aiCorrections && aiCorrections.length === 0 && (
+            <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-bold">
+              <Check className="w-4 h-4" /> AI 검토 완료 — 수정이 필요한 항목이 없습니다!
+              <button onClick={() => setAiCorrections(null)} className="ml-auto text-xs text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
 
           {/* 줄별 빠른 입력 모드 */}
           {quickEntryMode && activeTab !== 'notice_write' && (
@@ -4583,16 +4742,16 @@ const renderPreviewLines = () => {
                   );
                 })}
               </div>
-              {/* 미제출 교구 알림 문자 복사 */}
+              {/* 미제출 교회별 알림 문자 복사 */}
               {(() => {
-                const notDone = Object.entries(PARISH_CHURCH_MAP)
-                  
-                  .filter(([p, cs]) => {
-                    const tcs = (cs as string[]).slice(1);
-                    return tcs.some(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted');
+                const parishMissing = Object.entries(PARISH_CHURCH_MAP)
+                  .map(([p, cs]) => {
+                    const missing = (cs as string[]).slice(1).filter(c => adminReportStatusMap[`${p}_${c}`] !== 'submitted');
+                    return { p, missing };
                   })
-                  .map(([p]) => getDisplayParish(p));
-                if (notDone.length === 0) return (
+                  .filter(({ missing }) => missing.length > 0);
+                const totalMissing = parishMissing.reduce((sum, { missing }) => sum + missing.length, 0);
+                if (parishMissing.length === 0) return (
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-emerald-600 font-bold flex items-center gap-1.5">
                     <CheckCircle className="w-3.5 h-3.5" /> 전국 모든 교구 제출 완료! 🎉
                   </div>
@@ -4601,13 +4760,18 @@ const renderPreviewLines = () => {
                   <button
                     onClick={() => {
                       const dateStr = appConfig?.solarDate || '이번 주';
-                      const msg = `[전국 주간보고 알림]\n${dateStr} 주간보고 미완료 교구:\n${notDone.map(p => `• ${p}`).join('\n')}\n\n빠른 제출 독려 부탁드립니다.`;
-                      navigator.clipboard.writeText(msg);
-                      toast.success('미완료 교구 알림 문자가 복사되었습니다.');
+                      const lines = [`[전국 주간보고 알림]`, `${dateStr} 미제출 교회 현황`, ''];
+                      parishMissing.forEach(({ p, missing }) => {
+                        lines.push(`◎ ${getDisplayParish(p)} (${missing.length}개 미제출)`);
+                        missing.forEach(c => lines.push(`  • ${getDisplayChurch(c)}`));
+                      });
+                      lines.push('', '빠른 제출 독려 부탁드립니다.');
+                      navigator.clipboard.writeText(lines.join('\n'));
+                      toast.success('미제출 교회별 알림 문자가 복사되었습니다.');
                     }}
                     className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold transition-colors"
                   >
-                    <Copy className="w-3.5 h-3.5" /> 미완료 교구({notDone.length}개) 알림 문자 복사
+                    <Copy className="w-3.5 h-3.5" /> 미제출 {parishMissing.length}개 교구 / {totalMissing}개 교회 알림 복사
                   </button>
                 );
               })()}

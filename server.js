@@ -597,6 +597,9 @@ app.post(
   }
 );
 
+// Ping — 로컬 서버 자동 감지용
+app.get('/api/ping', (req, res) => res.json({ ok: true, mode: 'local' }));
+
 // 4a. Claude Code CLI Proxy (Claude Pro 구독자용 — claude -p 비대화형 실행)
 app.post('/api/claude-chat', async (req, res) => {
   const { prompt } = req.body;
