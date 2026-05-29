@@ -4764,28 +4764,36 @@ const renderPreviewLines = () => {
                                   >
                                     <BookOpen className="w-3 h-3" />
                                   </button>
-                                  {/* 초기화 버튼 (호버 시 표시) */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      withAdminBypass(`[${c}] 초기화`, (pwd) => pwd === 'chongmu2027', async () => {
-                                        const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
-                                        const key = `report_${p}_${c}`;
-                                        localStorage.setItem(key, JSON.stringify(defaultData));
-                                        sessionStorage.removeItem(key);
-                                        try {
-                                          await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
-                                        } catch {}
-                                        setAdminReportStatusMap(prev => ({ ...prev, [`${p}_${c}`]: 'empty' }));
-                                        setAdminReportTimestampMap(prev => ({ ...prev, [`${p}_${c}`]: null }));
-                                        toast.success(`[${c}] 보고서가 초기화되었습니다.`);
-                                      });
-                                    }}
-                                    className="absolute top-1 right-1 hidden group-hover:flex w-5 h-5 items-center justify-center bg-red-50 hover:bg-red-100 border border-red-200 text-red-400 hover:text-red-600 rounded transition-colors"
-                                    title="이 교회 보고서 초기화"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
+                                  {/* 초기화 버튼 — 관리자: 비밀번호 필요 / 사무장: 자기 교구 내 자유롭게 삭제 */}
+                                  {(role === 'admin' || (role === 'manager' && p === parish)) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const doReset = async () => {
+                                          const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+                                          const key = `report_${p}_${c}`;
+                                          localStorage.setItem(key, JSON.stringify(defaultData));
+                                          sessionStorage.removeItem(key);
+                                          try {
+                                            await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() });
+                                          } catch {}
+                                          setAdminReportStatusMap(prev => ({ ...prev, [`${p}_${c}`]: 'empty' }));
+                                          setAdminReportTimestampMap(prev => ({ ...prev, [`${p}_${c}`]: null }));
+                                          toast.success(`[${c}] 보고서가 초기화되었습니다.`);
+                                        };
+                                        if (role === 'manager') {
+                                          // 사무장: 확인창만
+                                          if (window.confirm(`[${c}] 보고서를 초기화하시겠습니까?`)) doReset();
+                                        } else {
+                                          withAdminBypass(`[${c}] 초기화`, (pwd) => pwd === 'chongmu2027', doReset);
+                                        }
+                                      }}
+                                      className="absolute top-1 right-1 hidden group-hover:flex w-5 h-5 items-center justify-center bg-red-50 hover:bg-red-100 border border-red-200 text-red-400 hover:text-red-600 rounded transition-colors"
+                                      title="이 교회 보고서 초기화"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
@@ -4914,6 +4922,54 @@ const renderPreviewLines = () => {
                   <span className="text-xs">전국 통합</span>
                   <span className="text-[10px] text-indigo-200">마스터 Word</span>
                 </button>
+              </div>
+
+              {/* 삭제 버튼 */}
+              <div className="flex gap-2 mb-3">
+                {/* 사무장: 담당 교구 전체 삭제 */}
+                {role === 'manager' && (
+                  <button
+                    onClick={() => {
+                      const targets = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
+                      if (window.confirm(`${getDisplayParish(adminConsoleParish)} 교구 전체(${targets.length}개 교회) 보고서를 초기화하시겠습니까?`)) {
+                        Promise.all(targets.map(async c => {
+                          const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+                          const key = `report_${adminConsoleParish}_${c}`;
+                          localStorage.setItem(key, JSON.stringify(defaultData));
+                          sessionStorage.removeItem(key);
+                          try { await saveDbData(`${adminConsoleParish}_${c}`, { id: `${adminConsoleParish}_${c}`, parish: adminConsoleParish, church: c, ...defaultData, updated_at: new Date().toISOString() }); } catch {}
+                          setAdminReportStatusMap(prev => ({ ...prev, [`${adminConsoleParish}_${c}`]: 'empty' }));
+                          setAdminReportTimestampMap(prev => ({ ...prev, [`${adminConsoleParish}_${c}`]: null }));
+                        })).then(() => toast.success(`${getDisplayParish(adminConsoleParish)} 교구 전체 초기화 완료`));
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-sm transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" /> 교구 전체 삭제
+                  </button>
+                )}
+                {/* 관리자: 전체 삭제 */}
+                {role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      withAdminBypass('전체 삭제 (비밀번호 확인)', (pwd) => pwd === 'chongmu2027', async () => {
+                        const allTargets = Object.keys(PARISH_CHURCH_MAP).flatMap(p => PARISH_CHURCH_MAP[p].map(c => ({ parish: p, church: c })));
+                        await Promise.all(allTargets.map(async ({ parish: p, church: c }) => {
+                          const defaultData = { data: DEFAULT_REPORT, lastSaved: null, status: 'draft' };
+                          localStorage.setItem(`report_${p}_${c}`, JSON.stringify(defaultData));
+                          sessionStorage.removeItem(`report_${p}_${c}`);
+                          try { await saveDbData(`${p}_${c}`, { id: `${p}_${c}`, parish: p, church: c, ...defaultData, updated_at: new Date().toISOString() }); } catch {}
+                          setAdminReportStatusMap(prev => ({ ...prev, [`${p}_${c}`]: 'empty' }));
+                          setAdminReportTimestampMap(prev => ({ ...prev, [`${p}_${c}`]: null }));
+                        }));
+                        toast.success(`전국 전체(${allTargets.length}개) 보고서 초기화 완료`);
+                      });
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-sm transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" /> 전체 삭제
+                  </button>
+                )}
               </div>
 
               {/* Parish AI Review — 로컬 or 클라우드 or 브라우저 AI */}
