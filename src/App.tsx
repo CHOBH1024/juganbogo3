@@ -2482,12 +2482,28 @@ export default function App() {
       if (isLocalMode) {
         try {
           const serverUrl = getLocalServerUrl();
-          
+          const fullPrompt = aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`;
+
+          // Claude Code CLI 우선 시도
+          let usedClaude = false;
+          try {
+            const claudeRes = await fetch(`${serverUrl}/api/claude-chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: fullPrompt })
+            });
+            if (claudeRes.ok) {
+              const claudeData = await claudeRes.json();
+              if (claudeData.text) { text = claudeData.text; usedClaude = true; }
+            }
+          } catch (_) {}
+
+          if (!usedClaude) {
           const res = await fetch(`${serverUrl}/api/ollama-chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prompt: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`
+              prompt: fullPrompt
             })
           });
           
@@ -2498,9 +2514,10 @@ export default function App() {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.error || "Ollama API failed");
           }
+          } // end if (!usedClaude)
         } catch (e: any) {
-          console.error("Local Ollama AI check failed:", e);
-          toast.error(`로컬 AI 오류: ${e.message} (Ollama 실행 여부 확인)`);
+          console.error("Local AI check failed:", e);
+          toast.error(`로컬 AI 오류: ${e.message} (Claude Code 또는 Ollama 실행 여부 확인)`);
           setIsCheckingAI(false);
           setShowAiModal(false);
           return;

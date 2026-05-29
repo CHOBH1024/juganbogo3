@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
+import { spawn } from 'child_process';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ImageRun } from 'docx';
 import { google } from 'googleapis';
 
@@ -595,6 +596,34 @@ app.post(
     }
   }
 );
+
+// 4a. Claude Code CLI Proxy (Claude Pro 구독자용 — claude -p 비대화형 실행)
+app.post('/api/claude-chat', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+
+  let output = '';
+  let errorOutput = '';
+
+  const child = spawn('claude', ['-p', prompt], { timeout: 120000 });
+
+  child.stdout.on('data', (data) => { output += data.toString(); });
+  child.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+  child.on('error', (err) => {
+    console.error('[ClaudeCode] spawn error:', err.message);
+    res.status(500).json({ error: `Claude CLI not found: ${err.message}. Run: npm install -g @anthropic-ai/claude-code` });
+  });
+
+  child.on('close', (code) => {
+    if (code !== 0) {
+      console.error('[ClaudeCode] exited with code', code, errorOutput);
+      return res.status(500).json({ error: errorOutput || `Claude exited with code ${code}` });
+    }
+    console.log('[ClaudeCode] success, output length:', output.length);
+    res.json({ text: output.trim() });
+  });
+});
 
 // 4. Dynamic Ollama AI Proxy (handles CORS & automatic model selection)
 app.post('/api/ollama-chat', async (req, res) => {
