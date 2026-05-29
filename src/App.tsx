@@ -287,6 +287,9 @@ export default function App() {
     if (selectedRole === 'admin') {
       setActiveTab('admin_console');
     }
+    if (selectedRole === 'manager' && data?.parish) {
+      setAdminConsoleParish(data.parish);
+    }
   };
   
   const [reportData, setReportData] = useState<ReportItem[]>(DEFAULT_REPORT);
@@ -370,7 +373,11 @@ export default function App() {
   const [adminReportTimestampMap, setAdminReportTimestampMap] = useState<Record<string, string | null>>({});
   const [adminExpandedParish, setAdminExpandedParish] = useState<string | null>(null);
   const [adminActiveParish, setAdminActiveParish] = useState<string>('전체');
-  const [adminConsoleParish, setAdminConsoleParish] = useState<string>(Object.keys(PARISH_CHURCH_MAP)[0]);
+  const [adminConsoleParish, setAdminConsoleParish] = useState<string>(() => {
+    const savedRole = localStorage.getItem('APP_ROLE');
+    if (savedRole === 'manager') return localStorage.getItem('APP_PARISH') || Object.keys(PARISH_CHURCH_MAP)[0];
+    return Object.keys(PARISH_CHURCH_MAP)[0];
+  });
   const [adminLastRefreshed, setAdminLastRefreshed] = useState<Date | null>(null);
   const [adminAutoRefresh, setAdminAutoRefresh] = useState(false);
   const [adminCompilationProgress, setAdminCompilationProgress] = useState<string>('');
@@ -4837,18 +4844,24 @@ const renderPreviewLines = () => {
                 </div>
               </div>
 
-              {/* Parish selector */}
+              {/* Parish selector — 관리자만 변경 가능, 사무장은 자기 교구 고정 */}
               <div className="mb-4">
                 <label className="block text-xs font-bold text-slate-500 mb-1.5">취합할 교구</label>
-                <select
-                  value={adminConsoleParish}
-                  onChange={(e) => setAdminConsoleParish(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
-                >
-                  {Object.keys(PARISH_CHURCH_MAP).map(p => (
-                    <option key={p} value={p}>{getDisplayParish(p)}</option>
-                  ))}
-                </select>
+                {role === 'manager' ? (
+                  <div className="w-full px-3 py-2.5 border border-slate-200 rounded-lg bg-slate-50 text-sm font-bold text-slate-700">
+                    {getDisplayParish(adminConsoleParish)} <span className="text-xs text-slate-400 font-normal">(내 담당 교구)</span>
+                  </div>
+                ) : (
+                  <select
+                    value={adminConsoleParish}
+                    onChange={(e) => setAdminConsoleParish(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                  >
+                    {Object.keys(PARISH_CHURCH_MAP).map(p => (
+                      <option key={p} value={p}>{getDisplayParish(p)}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Parish stats */}
