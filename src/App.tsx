@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
@@ -251,7 +251,6 @@ export default function App() {
   
   const [nextId, setNextId] = useState(5);
   const [showJsonModal, setShowJsonModal] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [showAiPasteModal, setShowAiPasteModal] = useState(false);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
@@ -264,8 +263,6 @@ export default function App() {
   const [showSubmitCelebration, setShowSubmitCelebration] = useState(false);
   const [driveSaveResult, setDriveSaveResult] = useState<'ok' | 'skipped' | 'error' | 'saving' | null>(null);
   const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
-  const [isCheckingAI, setIsCheckingAI] = useState(false);
-  const [aiCorrections, setAiCorrections] = useState<any[] | null>(null);
   const [quickEntryMode, setQuickEntryMode] = useState(false);
   const [quickEntryText, setQuickEntryText] = useState('');
 
@@ -300,20 +297,10 @@ export default function App() {
     });
   };
 
-  const handleAssociationTab = () => {
-    if (activeTab === 'association') return;
-    withAdminBypass('협회 보고 모드', (pwd) => pwd === '20252027', () => {
-      setActiveTab('association');
-      setParish('협회');
-      setChurch(PARISH_CHURCH_MAP['협회'][0]);
-    });
-  };
   const [notices, setNotices] = useState<any[]>([]);
   const [readNoticeIds, setReadNoticeIds] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('read_notice_ids') || '[]')); } catch { return new Set(); }
   });
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isDownloadUnlocked, setIsDownloadUnlocked] = useState(() => sessionStorage.getItem('download_unlocked') === '1');
   const [activeNotice, setActiveNotice] = useState<any | null>(null);
   const [isUploadingNotice, setIsUploadingNotice] = useState(false);
 
@@ -414,21 +401,6 @@ export default function App() {
   const [passwordModalError, setPasswordModalError] = useState('');
   const [passwordModalCallback, setPasswordModalCallback] = useState<((pwd: string) => boolean) | null>(null);
   const [passwordModalOnSuccess, setPasswordModalOnSuccess] = useState<((pwd: string) => void) | null>(null);
-
-  // API 키 입력 모달 (텍스트 입력, 비밀번호 X)
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [apiKeyModalTitle, setApiKeyModalTitle] = useState('');
-  const [apiKeyModalDesc, setApiKeyModalDesc] = useState('');
-  const [apiKeyModalInput, setApiKeyModalInput] = useState('');
-  const [apiKeyModalOnSuccess, setApiKeyModalOnSuccess] = useState<((key: string) => void) | null>(null);
-
-  const openApiKeyModal = (title: string, desc: string, defaultValue: string, onSuccess: (key: string) => void) => {
-    setApiKeyModalTitle(title);
-    setApiKeyModalDesc(desc);
-    setApiKeyModalInput(defaultValue);
-    setApiKeyModalOnSuccess(() => onSuccess);
-    setShowApiKeyModal(true);
-  };
 
   const openPasswordModal = (title: string, checkFn: (pwd: string) => boolean, onSuccess: (pwd: string) => void) => {
     setPasswordModalTitle(title);
@@ -536,13 +508,6 @@ export default function App() {
     // 앱 시작 시 공지사항 미리 로드 (배지 표시를 위해)
     loadNotices();
   }, []);
-
-  const handleAdminLogin = () => {
-    openPasswordModal('관리자 로그인', (pwd) => pwd === 'chongmu2027', () => {
-      setIsAdmin(true);
-      toast.success('🔐 관리자로 로그인되었습니다.');
-    });
-  };
 
   const handleNoticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2440,282 +2405,6 @@ export default function App() {
     toast.success(`${newData.length}개 항목이 적용되었습니다.`);
   };
 
-  const checkWithAI = async () => {
-    setIsCheckingAI(true);
-    setShowAiModal(true);
-    setAiCorrections(null);
-
-    try {
-      const churches = PARISH_CHURCH_MAP[parish] || [church];
-
-      // 제출 완료 교회만 + 세션 캐시 우선으로 병렬 취합
-      const results = await Promise.all(
-        churches.map(async (c) => {
-          if (c === church) {
-            if (status !== 'submitted') return { c, data: [] }; // 현재 교회도 미제출이면 스킵
-            return { c, data: getCleanData(reportData) };
-          }
-          const report = await getReportDataFor(parish, c);
-          if (!report || report.status !== 'submitted') return { c, data: [] }; // 미제출 스킵
-          return { c, data: report.data ? getCleanData(report.data) : [] };
-        })
-      );
-
-      const allPayload: any[] = [];
-      for (const { c, data } of results) {
-        let currentSection = '';
-        data.forEach((item: ReportItem) => {
-          if (item.level === 0) { currentSection = item.text; return; }
-          if (item.text.trim() === '') return;
-          allPayload.push({ church: c, id: item.id, text: item.text, section: currentSection });
-        });
-      }
-
-      const prevDateLabel = appConfig?.solarDate ? `전주(~${appConfig.solarDate} 이전)` : '전주 결과보고';
-      const curDateLabel = appConfig?.solarDate ? `금주(${appConfig.solarDate} 주간)` : '금주 계획';
-
-      const aiPrompt = `당신은 교구 주간업무보고서를 검토하는 전문 편집자입니다.
-아래 제공된 데이터의 텍스트(text)와 구조(level)를 함께 검토하세요. 대충 작성된 텍스트라도 맥락을 파악하세요.
-
-각 항목에는 section 필드가 있습니다. section 값이 "전주" 또는 "결과"를 포함하면 전주 결과보고 영역, "금주" 또는 "계획"을 포함하면 금주 계획 영역입니다.
-응답 JSON에 반드시 원본 section 값을 그대로 포함하세요.
-
-검토 및 윤문 기준 (사용자 맞춤 설정 적용됨):
-1. [문체]: 명료한 개조식 (감정을 배제하고 사실 위주로 "~함", "~음" 형태로 짧고 명확하게 종결)
-2. [교정 강도]: 문맥 윤문 (오탈자 수정은 물론, 어색하거나 앞뒤가 안 맞는 문맥까지 자연스럽게 다듬어서 가독성 향상)
-3. [분량]: 원문 분량 유지 (작성자가 올린 내용의 디테일을 훼손하지 않고 최대한 유지)
-4. [데이터 강조]: 볼드체 강조 (참석 인원, 금액, 날짜 등 중요한 숫자 데이터는 마크다운 **볼드체**로 묶어서 강조)
-
-문서 서식 규칙 (level 값):
-- level 0: 대분류 제목 (예: "전주 결과보고", "금주 계획") — Ⅰ. Ⅱ. 형식
-- level 1: 중분류 항목 (세부 내용의 소제목) — 1. 2. 형식
-- level 2: 세부 내용 (구체적인 실행 내용) — 1) 2) 형식
-- level 3: 부가 설명 — ① ② 형식
-- level 4: 세부 사항 — 가. 나. 형식
-- level 5: 최하위 항목 — a. b. 형식
-
-검토 사항:
-1. 오타 또는 문맥상 어색한 텍스트 위 기준에 따라 수정
-2. 주간보고 양식(~함, ~예정 등 개조식)에 맞지 않는 항목 수정
-3. level이 내용에 맞지 않는 항목 (잘못된 계층 구조 → 올바른 level로 교정)
-4. 세부 항목(level 2 이상)의 정렬 우선순위: 1) 일시, 2) 장소, 3) 대상/참석인원, 4) 주제/목적, 5) 주요 내용, 6) 결과/향후 계획, 7) 사진/첨부
-5. "사진", "첨부", "대표사진" 등이 포함된 항목은 내용을 불문하고 항상 같은 계층 내 최하단으로 순서를 변경
-6. 항목 서식 통일: "일시 :", "일시-" 등을 "일시: " 형태로 통일 (콜론 뒤 한 칸 띄어쓰기)
-
-반드시 아래 JSON 배열 형태로만 응답하세요. (백틱이나 markdown 없이 순수 JSON만)
-수정이 필요한 항목과 순서가 변경된 항목만 포함하세요. level과 text 중 변경 없는 필드는 원본 그대로 유지하세요.
-[{ "church": "교회이름", "id": 1, "section": "원본 section 값", "original": "원래 텍스트", "corrected": "교정된 텍스트", "level": 1, "reason": "이유" }]`;
-
-      let text = "";
-
-      if (isLocalMode) {
-        try {
-          const serverUrl = getLocalServerUrl();
-          const fullPrompt = aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}`;
-
-          // Claude Code CLI 우선 시도
-          let usedClaude = false;
-          try {
-            const claudeRes = await fetch(`${serverUrl}/api/claude-chat`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: fullPrompt })
-            });
-            if (claudeRes.ok) {
-              const claudeData = await claudeRes.json();
-              if (claudeData.text) { text = claudeData.text; usedClaude = true; }
-            }
-          } catch (_) {}
-
-          if (!usedClaude) {
-          const res = await fetch(`${serverUrl}/api/ollama-chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: fullPrompt
-            })
-          });
-          
-          if (res.ok) {
-            const data = await res.json();
-            text = data.text;
-          } else {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || "Ollama API failed");
-          }
-          } // end if (!usedClaude)
-        } catch (e: any) {
-          console.error("Local AI check failed:", e);
-          toast.error(`로컬 AI 오류: ${e.message} (Claude Code 또는 Ollama 실행 여부 확인)`);
-          setIsCheckingAI(false);
-          setShowAiModal(false);
-          return;
-        }
-      } else {
-        let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-        
-        // 1. 구글 Gemini REST API (가장 빠르고 확실한 방법)
-        try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }] }],
-              generationConfig: { responseMimeType: "application/json" }
-            })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          } else if (response.status === 429) {
-            throw new Error("RATE_LIMIT");
-          } else {
-            throw new Error("API_ERROR");
-          }
-        } catch (e: any) {
-          console.warn("Gemini REST API failed", e);
-          if (e.message === "RATE_LIMIT") {
-              openApiKeyModal(
-                'Gemini API 키 입력',
-                '기본 제공 키 사용량이 초과되었습니다 (429). 본인의 Google AI Studio API 키를 입력하시면 계속 사용하실 수 있습니다.',
-                localStorage.getItem('GEMINI_KEY') || '',
-                (newKey) => {
-                  localStorage.setItem('GEMINI_KEY', newKey);
-                  toast.success('Gemini API 키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.');
-                  setShowAiModal(false);
-                  setIsCheckingAI(false);
-                }
-              );
-              return;
-          }
-        }
-
-        // 2. OpenRouter API 폴발 (우회 경로)
-        if (!text) {
-          let openRouterKey = localStorage.getItem('OPENROUTER_KEY');
-          if (!openRouterKey) {
-            // openApiKeyModal은 동기적으로 처리 불가하므로 모달을 열고 return
-            openApiKeyModal(
-              'OpenRouter API 키 입력',
-              'Gemini에 연결할 수 없습니다. OpenRouter API 키를 입력하시면 무료 모델로 우회 검토합니다.',
-              '',
-              (inputKey) => {
-                localStorage.setItem('OPENROUTER_KEY', inputKey);
-                toast.info('OpenRouter 키가 저장되었습니다. 다시 검토 버튼을 눌러주세요.');
-                setShowAiModal(false);
-                setIsCheckingAI(false);
-              }
-            );
-            return;
-          }
-
-          if (openRouterKey) {
-            try {
-              const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${openRouterKey}`,
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  model: "google/gemini-2.0-flash-lite-preview-02-05:free",
-                  response_format: { type: "json_object" },
-                  messages: [{ role: "user", content: aiPrompt + `\n\n데이터:\n${JSON.stringify(allPayload, null, 2)}` }]
-                })
-              });
-              if (res.ok) {
-                const json = await res.json();
-                text = json.choices[0].message.content;
-              }
-            } catch(e) {
-              console.error("OpenRouter fallback failed", e);
-            }
-          }
-        }
-      }
-      
-      if (!text) throw new Error("AI 응답을 받지 못했습니다.");
-      
-      let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
-      const match = cleanText.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (match) cleanText = match[0];
-      
-      const corrections = JSON.parse(cleanText);
-      setAiCorrections(corrections);
-    } catch (err) {
-      console.error(err);
-      toast.error("AI 검토 실패. 한도 초과 또는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
-      setShowAiModal(false);
-    } finally {
-      setIsCheckingAI(false);
-    }
-  };
-
-  const applyCorrection = async (churchName: string, id: number, correctedText: string, correctedLevel?: number) => {
-    if (churchName === church) {
-      setReportData(data => data.map(item => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item));
-    } else {
-      const key = `report_${parish}_${churchName}`;
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        try {
-           const parsed = JSON.parse(saved);
-           if (parsed.data) {
-             parsed.data = parsed.data.map((item: any) => item.id === id ? { ...item, text: correctedText, ...(correctedLevel !== undefined ? { level: correctedLevel } : {}) } : item);
-             localStorage.setItem(key, JSON.stringify(parsed));
-             if (supabase) {
-                await saveDbData(`${parish}_${churchName}`, { id: `${parish}_${churchName}`, ...parsed, updated_at: new Date().toISOString() });
-             }
-           }
-        } catch(e){}
-      }
-    }
-    setAiCorrections(prev => prev ? prev.filter(c => !(c.id === id && c.church === churchName)) : null);
-  };
-
-  const applyAllCorrections = async () => {
-    if (!aiCorrections) return;
-
-    const byChurch: Record<string, {id: number, text: string, level?: number}[]> = {};
-    aiCorrections.forEach(c => {
-       if (!byChurch[c.church]) byChurch[c.church] = [];
-       byChurch[c.church].push({ id: c.id, text: c.corrected, level: c.level });
-    });
-
-    for (const [cName, updates] of Object.entries(byChurch)) {
-       const updateMap = new Map(updates.map(u => [u.id, u]));
-       if (cName === church) {
-          setReportData(data => data.map(item => {
-            const u = updateMap.get(item.id);
-            if (!u) return item;
-            return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
-          }));
-       } else {
-          const key = `report_${parish}_${cName}`;
-          const saved = localStorage.getItem(key);
-          if (saved) {
-             try {
-                const parsed = JSON.parse(saved);
-                if (parsed.data) {
-                   parsed.data = parsed.data.map((item: any) => {
-                     const u = updateMap.get(item.id);
-                     if (!u) return item;
-                     return { ...item, text: u.text, ...(u.level !== undefined ? { level: u.level } : {}) };
-                   });
-                   localStorage.setItem(key, JSON.stringify(parsed));
-                   if (supabase) {
-                      await saveDbData(`${parish}_${cName}`, { id: `${parish}_${cName}`, ...parsed, updated_at: new Date().toISOString() });
-                   }
-                }
-             } catch(e){}
-          }
-       }
-    }
-
-    setAiCorrections([]);
-  };
-
   const exportToWord = async () => {
     const churches = PARISH_CHURCH_MAP[parish];
     let allChildren: (Paragraph | Table)[] = [];
@@ -3398,16 +3087,14 @@ const renderPreviewLines = () => {
                   className="text-xs text-blue-600 hover:text-blue-800 font-medium bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
                 >모두 읽음</button>
               )}
-              {!isAdmin ? (
-                <button onClick={handleAdminLogin} className="text-xs text-slate-500 hover:text-blue-600 font-medium bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-200">관리자 로그인</button>
-              ) : (
+              {role === 'admin' && (
                 <button
-                  onClick={() => withAdminBypass('공지 전체 삭제', (pwd) => pwd === 'chongmu2027', async () => {
+                  onClick={async () => {
                     await saveDbData('SYSTEM_NOTICES', { id: 'SYSTEM_NOTICES', data: [], updated_at: new Date().toISOString() });
                     setNotices([]);
                     setActiveNotice(null);
                     toast.success('모든 공지사항이 초기화되었습니다.');
-                  })}
+                  }}
                   className="text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
                 >전체 초기화</button>
               )}
@@ -3510,7 +3197,7 @@ const renderPreviewLines = () => {
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${catColor[cat] || 'bg-slate-100 text-slate-600'}`}>{cat}</span>
                         {isUnread && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white animate-pulse">NEW</span>}
                       </div>
-                      {isAdmin && (
+                      {role === 'admin' && (
                         <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
                           <button
                             onClick={(e) => { e.stopPropagation(); togglePinNotice(notice.id); }}
@@ -3521,7 +3208,7 @@ const renderPreviewLines = () => {
                           </button>
                         </div>
                       )}
-                      {isAdmin && (
+                      {role === 'admin' && (
                         <button
                           onClick={(e) => { e.stopPropagation(); deleteNotice(notice.id); }}
                           className="absolute bottom-2 right-2 bg-black/40 hover:bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all"
@@ -3605,7 +3292,7 @@ const renderPreviewLines = () => {
                   </div>
                 )}
                 {/* Admin delete */}
-                {isAdmin && (
+                {role === 'admin' && (
                   <div className="mt-12 pt-6 border-t border-slate-200">
                     <button onClick={() => { deleteNotice(activeNotice.id); }} className="text-sm text-red-500 hover:text-red-700 font-medium flex items-center gap-1.5">
                       <Trash2 className="w-4 h-4" /> 이 공지 삭제
@@ -3874,11 +3561,7 @@ const renderPreviewLines = () => {
                   {/* 교구 Word 내보내기 (사무장용) */}
                   {role === 'manager' && (
                     <button
-                      onClick={() => {
-                        withAdminBypass('교구 Word 내보내기', (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
-                          exportToWord();
-                        });
-                      }}
+                      onClick={exportToWord}
                       className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-bold transition-colors"
                     >
                       <Download className="w-3.5 h-3.5" /> {getDisplayParish(parish)} 교구 Word 내보내기
@@ -4592,24 +4275,13 @@ const renderPreviewLines = () => {
                 </>
               )}
             </div>
-            {role !== 'church' && (
+            {(role === 'admin' || role === 'manager') && (
             <button
-              onClick={() => {
-                if (role === 'admin' || isDownloadUnlocked) { checkWithAI(); return; }
-                openPasswordModal('AI 검토 & 내보내기', (pwd) => pwd === '20252027' || pwd === 'samu', (pwd) => {
-                  if (pwd === '20252027') {
-                    setIsDownloadUnlocked(true);
-                    sessionStorage.setItem('download_unlocked', '1');
-                    checkWithAI();
-                  } else if (pwd === 'samu') {
-                    exportToWord();
-                  }
-                });
-              }}
+              onClick={exportToWord}
               className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-medium shadow-sm transition-colors"
             >
-              <Bot className="w-5 h-5" />
-              AI 문맥 검토 및 내보내기
+              <Download className="w-5 h-5" />
+              Word 내보내기
             </button>
             )}
           </div>
@@ -4762,13 +4434,10 @@ const renderPreviewLines = () => {
                           <div className="flex gap-1.5 mb-2">
                             <button
                               onClick={() => {
-                                // 해당 교구로 전환하여 Word 내보내기
-                                withAdminBypass(`[${getDisplayParish(p)}] Word 내보내기`, (pwd) => pwd === 'chongmu2027' || pwd === 'samu', () => {
-                                  setActiveTab('report');
-                                  setParish(p);
-                                  setChurch(PARISH_CHURCH_MAP[p][0]);
-                                  setTimeout(() => exportToWord(), 500);
-                                });
+                                setActiveTab('report');
+                                setParish(p);
+                                setChurch(PARISH_CHURCH_MAP[p][0]);
+                                setTimeout(() => exportToWord(), 500);
                               }}
                               className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded text-[10px] font-bold transition-colors"
                             >
@@ -5266,160 +4935,6 @@ const renderPreviewLines = () => {
             <RefreshCw className="w-10 h-10 text-blue-500 animate-spin" />
             <p className="text-slate-800 font-bold text-lg">저장 중...</p>
             <p className="text-slate-400 text-sm">잠시만 기다려 주세요</p>
-          </div>
-        </div>
-      )}
-
-      {/* AI Review & Export Modal */}
-      {showAiModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Bot className="w-7 h-7 text-blue-100" />
-                <div>
-                  <h3 className="text-xl font-bold">AI 편집 및 워드 생성</h3>
-                  <p className="text-blue-100 text-sm mt-1">작성된 내용을 분석하여 오타 및 양식을 교정합니다.</p>
-                </div>
-              </div>
-              <button disabled={isCheckingAI} onClick={() => setShowAiModal(false)} className="p-2 hover:bg-white/10 rounded-full text-white/80 transition-colors">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
-              {isCheckingAI ? (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                  <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-                  <p className="text-lg font-medium text-slate-700">AI가 보고서를 꼼꼼히 읽고 있습니다...</p>
-                  <p className="text-sm mt-2">맞춤법, 띄어쓰기, 보고서 체재를 확인 중입니다.</p>
-                </div>
-              ) : aiCorrections ? (
-                <div>
-                  {aiCorrections.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 text-indigo-700 mb-4 font-medium bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                        <AlertCircle className="w-5 h-5" />
-                        총 {aiCorrections.length}건의 수정 제안이 있습니다.
-                      </div>
-                      {(() => {
-                        // Group by section first, then by church
-                        const bySectionChurch: Record<string, Record<string, any[]>> = {};
-                        aiCorrections.forEach(corr => {
-                          const sec = corr.section || '기타';
-                          if (!bySectionChurch[sec]) bySectionChurch[sec] = {};
-                          if (!bySectionChurch[sec][corr.church]) bySectionChurch[sec][corr.church] = [];
-                          bySectionChurch[sec][corr.church].push(corr);
-                        });
-                        const sectionOrder = Object.keys(bySectionChurch).sort((a, b) => {
-                          const isPrev = (s: string) => s.includes('전주') || s.includes('결과');
-                          const isCur = (s: string) => s.includes('금주') || s.includes('계획');
-                          if (isPrev(a) && !isPrev(b)) return -1;
-                          if (isCur(b) && !isCur(a)) return -1;
-                          return 0;
-                        });
-                        const getSectionColor = (sec: string) => {
-                          if (sec.includes('전주') || sec.includes('결과')) return { bg: 'bg-blue-600', light: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' };
-                          if (sec.includes('금주') || sec.includes('계획')) return { bg: 'bg-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' };
-                          return { bg: 'bg-slate-500', light: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600' };
-                        };
-                        return sectionOrder.map(sec => {
-                          const colors = getSectionColor(sec);
-                          const sectionLabel = sec.includes('전주') || sec.includes('결과')
-                            ? `전주 결과보고${appConfig?.solarDate ? ` (${appConfig.solarDate} 이전)` : ''}`
-                            : sec.includes('금주') || sec.includes('계획')
-                            ? `금주 계획${appConfig?.solarDate ? ` (${appConfig.solarDate} 주간)` : ''}`
-                            : sec;
-                          return (
-                            <div key={sec} className="mb-6">
-                              <div className={`flex items-center gap-2 ${colors.light} border ${colors.border} rounded-lg px-3 py-2 mb-3`}>
-                                <div className={`w-2 h-2 rounded-full ${colors.bg}`}></div>
-                                <h3 className={`text-sm font-black ${colors.text}`}>{sectionLabel}</h3>
-                                <span className={`ml-auto text-xs font-bold ${colors.text} opacity-70`}>
-                                  {Object.values(bySectionChurch[sec]).flat().length}건
-                                </span>
-                              </div>
-                              {Object.entries(bySectionChurch[sec]).map(([churchName, corrs]) => (
-                                <div key={churchName} className="mb-4 ml-2">
-                                  <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                                    <BookOpen className="w-4 h-4 text-slate-400" /> {churchName}
-                                  </h4>
-                                  <div className="space-y-3 pl-2 border-l-2 border-slate-200">
-                                    {(corrs as any[]).map((corr: any) => (
-                                      <div key={`${corr.church}-${corr.id}`} className="bg-white border text-sm border-slate-200 shadow-sm rounded-lg overflow-hidden flex flex-col">
-                                        <div className="p-3 border-b border-slate-100 flex gap-4">
-                                          <div className="flex-1">
-                                            <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded mr-2">원본</span>
-                                            <span className="text-slate-600 line-through decoration-red-300">{corr.original}</span>
-                                          </div>
-                                          <div className="flex-1">
-                                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mr-2">수정안</span>
-                                            <span className="text-slate-900 font-medium">{corr.corrected}</span>
-                                            {corr.level !== undefined && <span className="ml-2 text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">L{corr.level}</span>}
-                                          </div>
-                                        </div>
-                                        <div className="p-3 bg-slate-50 flex items-center justify-between gap-4">
-                                          <p className="text-slate-500 text-xs leading-relaxed"><strong className="text-slate-700">이유:</strong> {corr.reason}</p>
-                                          <button
-                                            onClick={() => applyCorrection(corr.church, corr.id, corr.corrected, corr.level)}
-                                            className="px-3 py-1.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-600 rounded text-xs font-medium transition-colors shrink-0 whitespace-nowrap"
-                                          >
-                                            이 항목만 적용
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
-                        <Check className="w-8 h-8" />
-                      </div>
-                      <h4 className="text-xl font-bold text-slate-800 mb-2">완벽합니다!</h4>
-                      <p className="text-slate-500">발견된 오타나 양식 불일치가 없습니다. 바로 문서를 생성할 수 있습니다.</p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            {!isCheckingAI && aiCorrections && (
-              <div className="p-5 border-t border-slate-200 bg-white flex justify-between items-center gap-3">
-                <button 
-                  onClick={() => setShowAiModal(false)}
-                  className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
-                >
-                  취소
-                </button>
-                <div className="flex gap-3">
-                  {aiCorrections.length > 0 && (
-                     <button 
-                       onClick={applyAllCorrections}
-                       className="px-5 py-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg font-bold transition-colors"
-                     >
-                       모두 적용하기
-                     </button>
-                  )}
-                  <button 
-                    onClick={() => {
-                      exportToWord();
-                      setShowAiModal(false);
-                    }}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center gap-2 shadow-md transition-colors"
-                  >
-                    <Download className="w-5 h-5" />
-                    워드로 다운로드
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -6051,38 +5566,6 @@ const renderPreviewLines = () => {
           <div className="text-4xl">🎉</div>
           <div className="text-xl font-black">{church} 보고서 제출 완료!</div>
           <div className="text-sm text-emerald-100">{parish} · {appConfig?.solarDate || ''}</div>
-        </div>
-      </div>
-    )}
-
-    {/* API 키 입력 모달 */}
-    {showApiKeyModal && (
-      <div className="fixed inset-0 bg-black/60 z-[350] flex items-center justify-center p-4" onClick={() => setShowApiKeyModal(false)}>
-        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
-          <div className="bg-gradient-to-br from-violet-600 to-indigo-700 p-4 text-white flex items-center gap-3">
-            <div className="bg-white/20 p-2 rounded-lg"><Key className="w-4 h-4" /></div>
-            <h2 className="font-black text-base">{apiKeyModalTitle}</h2>
-          </div>
-          <div className="p-4 space-y-3">
-            {apiKeyModalDesc && <p className="text-xs text-slate-600 leading-relaxed bg-violet-50 border border-violet-100 rounded-xl p-3">{apiKeyModalDesc}</p>}
-            <input
-              type="text"
-              placeholder="API 키 입력"
-              autoFocus
-              className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-violet-300 focus:border-violet-400 outline-none font-mono"
-              value={apiKeyModalInput}
-              onChange={e => setApiKeyModalInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && apiKeyModalInput.trim()) { setShowApiKeyModal(false); apiKeyModalOnSuccess?.(apiKeyModalInput.trim()); } }}
-            />
-            <div className="flex gap-2">
-              <button onClick={() => setShowApiKeyModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors">취소</button>
-              <button
-                onClick={() => { if (apiKeyModalInput.trim()) { setShowApiKeyModal(false); apiKeyModalOnSuccess?.(apiKeyModalInput.trim()); } }}
-                disabled={!apiKeyModalInput.trim()}
-                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-black transition-colors"
-              >저장</button>
-            </div>
-          </div>
         </div>
       </div>
     )}
