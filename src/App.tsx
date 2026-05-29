@@ -836,113 +836,80 @@ export default function App() {
     return () => clearInterval(interval);
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
-  const startAdminAiReview = async () => {
+  const startParishAiReview = async () => {
+    if (!isLocalMode) return;
     setIsAdminCheckingAI(true);
-    setAdminCompilationProgress("전국 교구 보고서 실시간 취합 중...");
+    setAdminCompilationProgress(`${getDisplayParish(adminConsoleParish)} 보고서 취합 중...`);
     setAdminAiCorrections(null);
 
     try {
-      const parishes = Object.keys(PARISH_CHURCH_MAP);
-      setAdminCompilationProgress("전국 교구 보고서 Drive에서 병렬 취합 중...");
+      const churches = PARISH_CHURCH_MAP[adminConsoleParish] || [];
+      const allPayload: {church: string; id: number; text: string}[] = [];
 
-      // 교구별 병렬, 교구 내 교회도 병렬로 Drive 취합
-      const parishResults = await Promise.all(
-        parishes.map(async (p) => {
-          const churchResults = await Promise.all(
-            PARISH_CHURCH_MAP[p].map(async (c) => {
-              if (p === parish && c === church) return { p, c, data: getCleanData(reportData) };
-              const report = await getReportDataFor(p, c);
-              return { p, c, data: report?.data ? getCleanData(report.data) : [] };
-            })
-          );
-          return churchResults;
-        })
-      );
-
-      const allAdminPayload: any[] = [];
-      for (const churchResults of parishResults) {
-        for (const { p, c, data } of churchResults) {
-          data.filter((item: ReportItem) => item.text.trim() !== "").forEach((item: ReportItem) => {
-            allAdminPayload.push({ parish: p, church: c, id: item.id, text: item.text });
-          });
+      for (const c of churches) {
+        let data: ReportItem[] = [];
+        if (adminConsoleParish === parish && c === church) {
+          data = getCleanData(reportData);
+        } else {
+          const report = await getReportDataFor(adminConsoleParish, c);
+          data = report?.data ? getCleanData(report.data) : [];
         }
+        data.filter(item => item.text?.trim()).forEach(item => {
+          allPayload.push({ church: c, id: item.id, text: item.text });
+        });
       }
 
-      if (allAdminPayload.length === 0) {
-        toast.warning("취합된 주간보고 내용이 없습니다. 각 교구 및 부서의 보고서 작성 현황을 확인해 주세요.");
+      if (allPayload.length === 0) {
+        toast.warning("취합된 보고서 내용이 없습니다.");
+        setAdminCompilationProgress('');
         setIsAdminCheckingAI(false);
         return;
       }
 
-      setAdminCompilationProgress(`총 ${allAdminPayload.length}개 업무보고 항목 취합 성공. AI 종합 편집 및 문맥 검토 분석 중...`);
+      setAdminCompilationProgress(`${allPayload.length}개 항목 Claude AI 검토 중...`);
 
-      const adminAiPrompt = `당신은 전체 교구 주간업무보고를 총괄 검토하는 전문 수석 편집자입니다.
-아래 제공된 데이터의 텍스트(text)를 검토하세요. 각 항목은 교구(parish), 교회(church), 항목 ID(id)를 가지고 있습니다.
-1. 오타가 있거나 2. 문맥상 어색하거나 3. 주간보고 개조식 형식(~함, ~예정 등)에 맞지 않는 항목들을 찾아 완벽하게 교정해 주세요.
-반드시 아래 JSON 배열 형태로만 정확히 응답하세요. (백틱이나 markdown 코드 블록 없이 순수 JSON만 반환해야 합니다.)
-[{ "parish": "교구이름", "church": "교회이름", "id": 1, "original": "원래 텍스트", "corrected": "완벽히 교정한 텍스트", "reason": "교정 이유" }]`;
+      const prompt = `당신은 교회 주간업무보고서 전문 편집자입니다.
 
-      let text = "";
+아래는 ${getDisplayParish(adminConsoleParish)} 교구 각 교회의 이번 주 업무보고 항목들입니다.
 
-      if (isLocalMode) {
-        const serverUrl = getLocalServerUrl();
-        const res = await fetch(`${serverUrl}/api/ollama-chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: adminAiPrompt + `\n\n데이터:\n${JSON.stringify(allAdminPayload, null, 2)}`
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          text = data.text;
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "Ollama API failed");
-        }
-      } else {
-        const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || localStorage.getItem('OPENROUTER_KEY');
-        if (openRouterKey) {
-          const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${openRouterKey}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model: "google/gemini-2.0-flash-lite-preview-02-05:free",
-              response_format: { type: "json_object" },
-              messages: [{ role: "user", content: adminAiPrompt + `\n\n데이터:\n${JSON.stringify(allAdminPayload, null, 2)}` }]
-            })
-          });
-          if (res.ok) {
-            const json = await res.json();
-            text = json.choices[0].message.content;
-          }
-        }
-      }
+다음을 검토해 주세요:
+1. 맞춤법·문법 오류
+2. 전주(지난 주)와 금주(이번 주) 내용이 올바르게 구분되어 있는지
+3. 어색하거나 불명확한 표현 개선
 
-      if (!text) throw new Error("AI 검토 응답을 수신하지 못했습니다.");
+수정이 필요한 항목을 다음 JSON 형식으로만 반환하세요 (JSON만, 설명 없이):
+[{"parish": "${adminConsoleParish}", "church": "교회명", "id": 숫자, "original": "원본텍스트", "corrected": "수정본", "reason": "수정사유"}]
+수정 불필요 시 [] 반환.
 
-      let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
-      const match = cleanText.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (match) cleanText = match[0];
-      
-      const corrections = JSON.parse(cleanText);
-      setAdminAiCorrections(corrections);
-      
-      // 기본적으로 모든 교정 사항을 체크(적용) 상태로 활성화
-      const initialSelected: Record<string, boolean> = {};
-      corrections.forEach((c: any) => {
-        const key = `${c.parish}_${c.church}_${c.id}`;
-        initialSelected[key] = true;
+--- 교구 보고서 ---
+${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
+
+      const serverUrl = getLocalServerUrl();
+      const res = await fetch(`${serverUrl}/api/claude-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
       });
-      setAdminSelectedCorrections(initialSelected);
-
-      setAdminCompilationProgress("");
+      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+      const resData = await res.json();
+      const jsonMatch = resData.text?.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const corrections = JSON.parse(jsonMatch[0]);
+        setAdminAiCorrections(corrections);
+        const initialSelected: Record<string, boolean> = {};
+        corrections.forEach((c: any) => { initialSelected[`${c.parish}_${c.church}_${c.id}`] = true; });
+        setAdminSelectedCorrections(initialSelected);
+        if (corrections.length === 0) toast.success(`${getDisplayParish(adminConsoleParish)} 검토 완료 — 수정 불필요!`);
+        else toast.info(`${corrections.length}개 수정 제안`);
+      } else {
+        setAdminAiCorrections([]);
+        toast.success('AI 검토 완료 — 수정 제안이 없습니다.');
+      }
+      setAdminCompilationProgress('');
     } catch (err: any) {
       console.error(err);
-      toast.error(`AI 통합 검토 오류: ${err.message}`);
+      toast.error(`AI 검토 실패: ${err.message}`);
+      setAdminCompilationProgress('');
     } finally {
       setIsAdminCheckingAI(false);
     }
@@ -4855,6 +4822,60 @@ const renderPreviewLines = () => {
                   <span className="text-[10px] text-indigo-200">마스터 Word</span>
                 </button>
               </div>
+
+              {/* Parish AI Review — 로컬 모드 전용 */}
+              {isLocalMode && (
+                <button
+                  onClick={startParishAiReview}
+                  disabled={isAdminCheckingAI || !!adminCompilationProgress}
+                  className={`mb-3 w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98] shadow-sm ${isAdminCheckingAI ? 'bg-purple-100 border border-purple-200 text-purple-500 cursor-wait' : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white'}`}
+                >
+                  <Bot className={`w-4 h-4 ${isAdminCheckingAI ? 'animate-spin' : ''}`} />
+                  {isAdminCheckingAI ? '검토 중...' : `${getDisplayParish(adminConsoleParish)} 교구 AI 일괄 검토`}
+                </button>
+              )}
+
+              {/* Admin AI corrections panel */}
+              {adminAiCorrections && adminAiCorrections.length > 0 && (
+                <div className="mb-3 bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-purple-100 border-b border-purple-200">
+                    <span className="text-xs font-black text-purple-800 flex items-center gap-1"><Bot className="w-3.5 h-3.5" /> AI 제안 {adminAiCorrections.length}건</span>
+                    <div className="flex gap-1.5">
+                      <button onClick={applySelectedAdminCorrections} className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded-lg">전체 적용</button>
+                      <button onClick={() => setAdminAiCorrections(null)} className="px-2.5 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded-lg">닫기</button>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-purple-100 max-h-52 overflow-y-auto">
+                    {adminAiCorrections.map((c: any, i: number) => (
+                      <div key={i} className="px-3 py-2.5 flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-slate-500 mb-0.5">{c.church}</p>
+                          <div className="flex gap-1.5 text-[11px] flex-wrap">
+                            <span className="text-red-600 line-through break-all">{c.original}</span>
+                            <span className="text-slate-400">→</span>
+                            <span className="text-emerald-700 font-bold break-all">{c.corrected}</span>
+                          </div>
+                          {c.reason && <p className="text-[10px] text-purple-500 mt-0.5">{c.reason}</p>}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const key = `${c.parish}_${c.church}_${c.id}`;
+                            setAdminSelectedCorrections({ [key]: true });
+                            applySelectedAdminCorrections();
+                          }}
+                          className="shrink-0 px-2 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg"
+                        >적용</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {adminAiCorrections && adminAiCorrections.length === 0 && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-bold">
+                  <Check className="w-3.5 h-3.5" /> 수정 필요 없음 — 완벽합니다!
+                  <button onClick={() => setAdminAiCorrections(null)} className="ml-auto"><X className="w-3 h-3 text-slate-400" /></button>
+                </div>
+              )}
 
               {/* Missing notification */}
               {(() => {
