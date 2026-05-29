@@ -369,6 +369,35 @@ export default function App() {
     return next;
   });
 
+  // 교회 보고서 미리보기 모달 (admin console)
+  const [previewChurchModal, setPreviewChurchModal] = useState<{
+    parish: string;
+    church: string;
+    status: 'empty' | 'draft' | 'submitted';
+    data: any[];
+    timestamp: string | null;
+  } | null>(null);
+
+  const openChurchPreview = async (p: string, c: string) => {
+    const key = `report_${p}_${c}`;
+    const st = (adminReportStatusMap[`${p}_${c}`] || 'empty') as 'empty' | 'draft' | 'submitted';
+    const ts = adminReportTimestampMap[`${p}_${c}`] || null;
+    let data: any[] = [];
+    try {
+      const sess = sessionStorage.getItem(key);
+      const local = localStorage.getItem(key);
+      const raw = sess || local;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        data = parsed.data || [];
+      } else {
+        const db = await fetchDbData(`${p}_${c}`);
+        data = db?.data || [];
+      }
+    } catch {}
+    setPreviewChurchModal({ parish: p, church: c, status: st, data, timestamp: ts });
+  };
+
   // 새 주간보고 시작 모달 (admin 전용)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false);
   const [newWeekPassword, setNewWeekPassword] = useState('');
@@ -4786,6 +4815,14 @@ const renderPreviewLines = () => {
                                     </div>
                                     {ts && <div className="text-[9px] text-slate-400 truncate mt-0.5" title={ts}>{getRelativeTime(ts) || ts}</div>}
                                   </button>
+                                  {/* 미리보기 버튼 */}
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openChurchPreview(p, c); }}
+                                    className="absolute bottom-1 right-1 hidden group-hover:flex w-5 h-5 items-center justify-center bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-400 hover:text-blue-600 rounded transition-colors"
+                                    title="보고서 내용 미리보기"
+                                  >
+                                    <BookOpen className="w-3 h-3" />
+                                  </button>
                                   {/* 초기화 버튼 (호버 시 표시) */}
                                   <button
                                     onClick={(e) => {
@@ -5706,6 +5743,55 @@ const renderPreviewLines = () => {
           <div className="h-px bg-slate-200 my-1"></div>
           <button className="w-full text-left px-3 py-1.5 hover:bg-slate-100" onClick={() => addTableCol(tableContextMenu.id)}>열 추가</button>
           <button className="w-full text-left px-3 py-1.5 hover:bg-slate-100 text-red-600" onClick={() => removeTableCol(tableContextMenu.id, tableContextMenu.c)}>열 삭제</button>
+        </div>
+      )}
+
+      {/* 교회 보고서 미리보기 모달 */}
+      {previewChurchModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm" onClick={() => setPreviewChurchModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            {/* 헤더 */}
+            <div className={`px-5 py-4 flex items-center justify-between rounded-t-2xl ${
+              previewChurchModal.status === 'submitted' ? 'bg-emerald-600' :
+              previewChurchModal.status === 'draft' ? 'bg-blue-600' : 'bg-slate-600'
+            }`}>
+              <div>
+                <h3 className="text-base font-black text-white">{getDisplayParish(previewChurchModal.parish)} · {getDisplayChurch(previewChurchModal.church)}</h3>
+                <p className="text-white/70 text-xs mt-0.5 flex items-center gap-1.5">
+                  {previewChurchModal.status === 'submitted' ? <><CheckCircle className="w-3 h-3" />제출완료</> :
+                   previewChurchModal.status === 'draft' ? <><Clock className="w-3 h-3" />작성중</> : '미작성'}
+                  {previewChurchModal.timestamp && <span> · {getRelativeTime(previewChurchModal.timestamp) || previewChurchModal.timestamp}</span>}
+                </p>
+              </div>
+              <button onClick={() => setPreviewChurchModal(null)} className="text-white/70 hover:text-white rounded-full p-1.5 hover:bg-white/20 transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            {/* 내용 */}
+            <div className="overflow-y-auto flex-1 p-5 space-y-1">
+              {previewChurchModal.data.length === 0 ? (
+                <p className="text-slate-400 text-sm text-center py-8">작성된 내용이 없습니다.</p>
+              ) : previewChurchModal.data.filter((item: any) => item.text?.trim()).map((item: any) => (
+                <div key={item.id} className={`flex gap-2 text-sm ${
+                  item.level === 0 ? 'mt-3' : ''
+                }`}>
+                  <span className="shrink-0 text-slate-400" style={{ marginLeft: `${item.level * 14}px` }}>
+                    {item.level === 0 ? '▌' : item.level === 1 ? '•' : '–'}
+                  </span>
+                  <span className={`${item.level === 0 ? 'font-black text-slate-800' : item.level === 1 ? 'font-semibold text-slate-700' : 'text-slate-600'} leading-snug`}>
+                    {item.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* 푸터 */}
+            <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => { setActiveTab('report'); setParish(previewChurchModal.parish); setChurch(previewChurchModal.church); setPreviewChurchModal(null); }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5"
+              >
+                <ArrowRight className="w-3.5 h-3.5" /> 에디터에서 열기
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -15,6 +15,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
   const savedParish = localStorage.getItem('APP_PARISH') || '천원특별';
   const savedChurch = localStorage.getItem('APP_CHURCH') || parishChurchMap['천원특별'][0];
   const savedManagerParish = localStorage.getItem('APP_MANAGER_PARISH') || '';
+  const savedManagerVerified = localStorage.getItem('APP_MANAGER_VERIFIED') === '1';
 
   const [parish, setParish] = useState(() => {
     const p = savedParish;
@@ -27,7 +28,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
 
   // 사무장 모드 상태
   const [managerPwd, setManagerPwd] = useState('');
-  const [managerPwdVerified, setManagerPwdVerified] = useState(false);
+  const [managerPwdVerified, setManagerPwdVerified] = useState(savedManagerVerified);
   const [managerParish, setManagerParish] = useState(savedManagerParish || Object.keys(parishChurchMap)[0]);
 
   // 관리자 모드 상태
@@ -39,6 +40,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
 
   const handleVerifyManagerPwd = () => {
     if (managerPwd === 'samu2027') {
+      localStorage.setItem('APP_MANAGER_VERIFIED', '1');
       setManagerPwdVerified(true);
     } else {
       alert('사무장 비밀번호가 일치하지 않습니다.');
@@ -128,7 +130,7 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
           {/* 사무장 모드 */}
           <div
             className={`border rounded-xl p-4 cursor-pointer transition-all ${selectedRole === 'manager' ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}
-            onClick={() => { setSelectedRole('manager'); setManagerPwdVerified(false); setManagerPwd(''); }}
+            onClick={() => { setSelectedRole('manager'); }}
           >
             <div className="flex items-center gap-3 mb-2">
               <div className={`p-2 rounded-lg ${selectedRole === 'manager' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
@@ -168,9 +170,15 @@ export default function RoleSelection({ onSelectRole, parishChurchMap, appConfig
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-                      <CheckCircle className="w-4 h-4 text-indigo-500 shrink-0" />
-                      <p className="text-xs font-bold text-indigo-700">인증 완료 — 담당 교구를 선택하세요</p>
+                    <div className="flex items-center justify-between gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <p className="text-xs font-bold text-indigo-700">인증 완료 — 담당 교구를 선택하세요</p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); localStorage.removeItem('APP_MANAGER_VERIFIED'); setManagerPwdVerified(false); setManagerPwd(''); }}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-600 underline shrink-0"
+                      >재인증</button>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">교구 선택</label>
