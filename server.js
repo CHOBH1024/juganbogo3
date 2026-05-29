@@ -608,7 +608,7 @@ app.post('/api/claude-chat', async (req, res) => {
   let output = '';
   let errorOutput = '';
 
-  const child = spawn('claude', ['-p', prompt], { timeout: 120000 });
+  const child = spawn('claude', ['-p', prompt], { timeout: 120000, shell: true });
 
   child.stdout.on('data', (data) => { output += data.toString(); });
   child.stderr.on('data', (data) => { errorOutput += data.toString(); });
