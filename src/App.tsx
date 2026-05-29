@@ -969,7 +969,15 @@ export default function App() {
 【맞춤법·문법】
  - 맞춤법·띄어쓰기 오류 수정
 
-━━━━━━━━━━━━━━━━━━━━━━━━`;
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ 반드시 아래 항목들도 꼼꼼히 체크:
+ 1. 중복 표현: "일시: 일시:", "장소: 장소:" 등 같은 단어 연속
+ 2. 과도한 공백: 단어 사이에 공백이 2개 이상인 경우 → 1개로 정리
+ 3. L2 소항목 누락: L1 항목에 일시/장소/인원 등 세부정보가 없으면 지적
+ 4. 내용 없는 빈 L0/L1: 하위 항목이 전혀 없는 섹션
+ 5. 서식 불일치: 어떤 항목은 "①일시:" 쓰고 어떤 항목은 "날짜:" 쓰는 경우
+ 사소한 것도 놓치지 말 것. 수정이 하나라도 있으면 반드시 JSON에 포함.`;
 
   const startParishAiReview = async () => {
     if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
@@ -2540,7 +2548,12 @@ ${reportText}`;
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   const checkWithLocalClaude = async () => {
-    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
+    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) {
+      toast.error('AI를 사용할 수 없습니다. 로컬 서버를 실행하거나 브라우저 AI를 다운로드하세요.');
+      return;
+    }
+    const aiMode = isLocalMode ? '🖥️ 로컬 Claude' : isCloudAiAvailable ? '☁️ 클라우드 AI' : '🤖 브라우저 AI';
+    toast.info(`${aiMode}로 검토 중...`, { autoClose: 2000 });
     setIsCheckingAI(true);
     setAiCorrections(null);
     try {
@@ -2556,10 +2569,10 @@ ${reportText}`;
 ${AI_FORMAT_RULES}
 
 수정이 필요한 항목을 다음 JSON 형식으로만 반환 (JSON만, 설명 없이):
-[{"id": 1, "original": "원본텍스트(L태그 제외)", "corrected": "수정본", "newLevel": 0, "reason": "수정사유"}]
+[{"id": 1, "original": "원본텍스트(L태그 제외, 공백 포함 원문 그대로)", "corrected": "수정본", "newLevel": 0, "reason": "수정사유"}]
 - newLevel: 계층이 바뀌어야 할 때만 포함 (0=L0, 1=L1, 2=L2). 계층 변경 없으면 생략.
-- 텍스트 변경 없이 계층만 바꾸는 경우: original == corrected, newLevel만 지정.
-수정 불필요 시 [] 만 반환.
+- original 필드는 아래 보고서에 나타난 텍스트를 공백 포함 정확히 그대로 복사.
+- 수정사항이 하나라도 있으면 반드시 JSON에 포함. [] 는 진짜 문제가 전혀 없을 때만.
 
 --- 보고서 내용 ---
 ${reportText}`;
