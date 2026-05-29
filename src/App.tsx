@@ -266,6 +266,8 @@ export default function App() {
   const [driveSavedAt, setDriveSavedAt] = useState<string | null>(null);
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [aiCorrections, setAiCorrections] = useState<any[] | null>(null);
+  const [quickEntryMode, setQuickEntryMode] = useState(false);
+  const [quickEntryText, setQuickEntryText] = useState('');
 
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string>('');
@@ -498,6 +500,10 @@ export default function App() {
       } catch (e) { console.error(e); }
     };
     loadConfig();
+    // OpenRouter 키 사전 설정 (무료 모델 우회용)
+    if (!localStorage.getItem('OPENROUTER_KEY')) {
+      localStorage.setItem('OPENROUTER_KEY', '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');
+    }
     // 앱 시작 시 공지사항 미리 로드 (배지 표시를 위해)
     loadNotices();
   }, []);
@@ -883,7 +889,7 @@ export default function App() {
           throw new Error(errData.error || "Ollama API failed");
         }
       } else {
-        const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY');
+        const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || localStorage.getItem('OPENROUTER_KEY');
         if (openRouterKey) {
           const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
@@ -2368,6 +2374,43 @@ export default function App() {
     }
   };
 
+  const enterQuickEntry = () => {
+    const lines: string[] = [];
+    reportData.forEach(item => {
+      if (item.level === 0) {
+        lines.push(`# ${item.text}`);
+      } else if (item.text.trim() || item.tableData || item.image) {
+        const indent = '  '.repeat(Math.max(0, item.level - 1));
+        lines.push(`${indent}${item.text}`);
+      }
+    });
+    setQuickEntryText(lines.join('\n'));
+    setQuickEntryMode(true);
+  };
+
+  const applyQuickEntry = () => {
+    const lines = quickEntryText.split('\n');
+    const newData: ReportItem[] = [];
+    let idCounter = nextId;
+    for (const line of lines) {
+      const raw = line.trimEnd();
+      if (!raw.trim()) continue;
+      if (raw.startsWith('# ')) {
+        newData.push({ id: idCounter++, text: raw.slice(2).trim(), level: 0 });
+      } else {
+        // 들여쓰기 2칸 단위로 level 계산 (최소 L1)
+        const leading = raw.length - raw.trimStart().length;
+        const level = Math.min(5, 1 + Math.floor(leading / 2));
+        newData.push({ id: idCounter++, text: raw.trim(), level });
+      }
+    }
+    if (newData.length === 0) { toast.warning('입력된 내용이 없습니다.'); return; }
+    setReportData(newData);
+    setNextId(idCounter);
+    setQuickEntryMode(false);
+    toast.success(`${newData.length}개 항목이 적용되었습니다.`);
+  };
+
   const checkWithAI = async () => {
     setIsCheckingAI(true);
     setShowAiModal(true);
@@ -3169,10 +3212,7 @@ const renderPreviewLines = () => {
         <div className="hidden md:flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide snap-x whitespace-nowrap">
            <button onClick={() => { setActiveTab('report'); setParish(role === 'church' || role === 'manager' ? parish : '천원특별'); }} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 업무보고</button>
            {role === 'admin' && (
-             <>
-               <button onClick={handleAssociationTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'association' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><BookOpen className="w-4 h-4"/> 협회 보고</button>
-               <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지 작성</button>
-             </>
+             <button onClick={handleNoticeWriteTab} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base ${activeTab === 'notice_write' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}><FileText className="w-4 h-4"/> 공지 작성</button>
            )}
            <button onClick={() => setActiveTab('notice')} className={`shrink-0 snap-start px-4 sm:px-5 py-2.5 font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm text-sm sm:text-base relative ${activeTab === 'notice' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}>
              <Bell className="w-4 h-4"/> 공지사항 확인
@@ -3215,13 +3255,6 @@ const renderPreviewLines = () => {
             <span className="text-[10px] font-bold">공지사항</span>
           </button>
           {/* 관리자 (admin 전용) */}
-          {role === 'admin' && (
-            <button onClick={handleAssociationTab} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'association' ? 'text-indigo-600' : 'text-slate-400'}`}>
-              {activeTab === 'association' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-indigo-600" />}
-              <BookOpen className={`w-5 h-5 mb-0.5 transition-transform ${activeTab === 'association' ? 'scale-110' : ''}`}/>
-              <span className="text-[10px] font-bold">협회</span>
-            </button>
-          )}
           {(role === 'admin' || role === 'manager') && (
             <button onClick={() => setActiveTab('admin_console')} className={`flex flex-col items-center pt-2 pb-3 flex-1 relative transition-colors ${activeTab === 'admin_console' ? 'text-purple-600' : 'text-slate-400'}`}>
               {activeTab === 'admin_console' && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-purple-600" />}
@@ -3591,6 +3624,16 @@ const renderPreviewLines = () => {
                 ) : null}
               </h2>
               <div className="flex gap-2 flex-wrap">
+                {activeTab !== 'notice_write' && (
+                  <button
+                    onClick={() => quickEntryMode ? setQuickEntryMode(false) : enterQuickEntry()}
+                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${quickEntryMode ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+                    title="줄별 빠른 입력 모드"
+                  >
+                    <AlignLeft className="w-4 h-4" />
+                    {quickEntryMode ? '편집기로 돌아가기' : '줄별 입력'}
+                  </button>
+                )}
                 <span className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
                   <Check className="w-4 h-4" /> AI 준비됨
                 </span>
@@ -3802,7 +3845,37 @@ const renderPreviewLines = () => {
 
 
 
-          <div className="flex-1 pr-2 space-y-2 pb-4">
+          {/* 줄별 빠른 입력 모드 */}
+          {quickEntryMode && activeTab !== 'notice_write' && (
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
+                <strong>줄별 입력 모드</strong> — 한 줄에 하나씩 입력하세요. <code className="bg-amber-100 px-1 rounded"># 섹션 제목</code>으로 대분류(Ⅰ·Ⅱ)를, 들여쓰기 2칸으로 하위 항목을 만들 수 있습니다. AI 검토 시 계층 구조가 자동 교정됩니다.
+              </div>
+              <textarea
+                value={quickEntryText}
+                onChange={e => setQuickEntryText(e.target.value)}
+                className="w-full min-h-[400px] border border-slate-300 rounded-lg px-4 py-3 text-sm font-mono leading-relaxed focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-y"
+                placeholder={`# 전주 결과보고\n활동 내용 1\n활동 내용 2\n\n# 금주 계획\n계획 내용 1\n계획 내용 2`}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={applyQuickEntry}
+                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Check className="w-4 h-4" /> 적용하기
+                </button>
+                <button
+                  onClick={() => setQuickEntryMode(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-lg transition-colors"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className={`flex-1 pr-2 space-y-2 pb-4 ${quickEntryMode ? 'hidden' : ''}`}>
             {(() => {
               const editorCounters = [0, 0, 0, 0, 0, 0];
               let currentL0Id: number | null = null;
@@ -4683,7 +4756,7 @@ const renderPreviewLines = () => {
                                 >
                                   <button
                                     onClick={() => {
-                                      if (p === '협회') { setActiveTab('association'); setParish('협회'); setChurch(c); }
+                                      if (p === '협회') { setActiveTab('report'); setParish('협회'); setChurch(c); }
                                       else { setActiveTab('report'); setParish(p); setChurch(c); }
                                     }}
                                     className="text-left px-2.5 py-2 w-full"
@@ -5742,7 +5815,7 @@ const renderPreviewLines = () => {
                   </button>
 
                   {/* 협회 전체 */}
-                  {activeTab === 'association' || parish === '협회' ? (
+                  {parish === '협회' ? (
                     <button
                       onClick={() => { const targets = PARISH_CHURCH_MAP['협회'].map(c => ({parish: '협회', church: c})); executeReset(targets, true); }}
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all text-left group"
