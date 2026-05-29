@@ -239,6 +239,7 @@ export default function App() {
 
   const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
+  const [isCloudAiAvailable, setIsCloudAiAvailable] = useState(false);
 
   // 로컬 서버 자동 감지 (마운트 시 ping)
   useEffect(() => {
@@ -252,6 +253,14 @@ export default function App() {
       } catch {}
     };
     detect();
+  }, []);
+
+  // Vercel 클라우드 AI 가용 여부 확인
+  useEffect(() => {
+    fetch('/api/ai-review')
+      .then(r => r.json())
+      .then(d => { if (d.available) setIsCloudAiAvailable(true); })
+      .catch(() => {});
   }, []);
   const [parish, setParish] = useState(() => localStorage.getItem('APP_PARISH') || "천원특별");
   const [church, setChurch] = useState(() => localStorage.getItem('APP_CHURCH') || PARISH_CHURCH_MAP["천원특별"][0]);
@@ -853,7 +862,7 @@ export default function App() {
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const startParishAiReview = async () => {
-    if (!isLocalMode) return;
+    if (!isLocalMode && !isCloudAiAvailable) return;
     setIsAdminCheckingAI(true);
     setAdminCompilationProgress(`${getDisplayParish(adminConsoleParish)} 보고서 취합 중...`);
     setAdminAiCorrections(null);
@@ -900,12 +909,21 @@ export default function App() {
 --- 교구 보고서 ---
 ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 
-      const serverUrl = getLocalServerUrl();
-      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
+      let res: Response;
+      if (isLocalMode) {
+        const serverUrl = getLocalServerUrl();
+        res = await localFetch(`${serverUrl}/api/claude-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+      } else {
+        res = await fetch('/api/ai-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+      }
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       const resData = await res.json();
       const jsonMatch = resData.text?.match(/\[[\s\S]*\]/);
@@ -2406,7 +2424,7 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   const checkWithLocalClaude = async () => {
-    if (!isLocalMode) return;
+    if (!isLocalMode && !isCloudAiAvailable) return;
     setIsCheckingAI(true);
     setAiCorrections(null);
     try {
@@ -2432,12 +2450,21 @@ ${allPayload.map(item => `[${item.church}] ${item.text}`).join('\n')}`;
 --- 보고서 내용 ---
 ${reportText}`;
 
-      const serverUrl = getLocalServerUrl();
-      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
+      let res: Response;
+      if (isLocalMode) {
+        const serverUrl = getLocalServerUrl();
+        res = await localFetch(`${serverUrl}/api/claude-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+      } else {
+        res = await fetch('/api/ai-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+      }
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       const data = await res.json();
       const jsonMatch = data.text?.match(/\[[\s\S]*\]/);
@@ -3452,7 +3479,7 @@ const renderPreviewLines = () => {
                   </button>
                 )}
                 {/* AI 검토 — 로컬 모드 + 사무장/관리자 전용 */}
-                {isLocalMode && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
+                {(isLocalMode || isCloudAiAvailable) && activeTab !== 'notice_write' && (role === 'manager' || role === 'admin') && (
                   <button
                     onClick={checkWithLocalClaude}
                     disabled={isCheckingAI}
@@ -4839,8 +4866,8 @@ const renderPreviewLines = () => {
                 </button>
               </div>
 
-              {/* Parish AI Review — 로컬 모드 전용 */}
-              {isLocalMode && (
+              {/* Parish AI Review — 로컬 or 클라우드 AI */}
+              {(isLocalMode || isCloudAiAvailable) && (
                 <button
                   onClick={startParishAiReview}
                   disabled={isAdminCheckingAI || !!adminCompilationProgress}
@@ -4965,8 +4992,8 @@ const renderPreviewLines = () => {
                       }
                     }}
                   />
-                  <span className={`text-[10px] font-bold shrink-0 ${isLocalMode ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    {isLocalMode ? '🟢 AI 켜짐' : '⚪ AI 꺼짐'}
+                  <span className={`text-[10px] font-bold shrink-0 ${(isLocalMode || isCloudAiAvailable) ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {isLocalMode ? '🟢 로컬 AI' : isCloudAiAvailable ? '🟢 클라우드 AI' : '⚪ AI 꺼짐'}
                   </span>
                 </div>
                 <div className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border text-xs ${
