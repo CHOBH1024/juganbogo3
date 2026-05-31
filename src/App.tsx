@@ -1046,73 +1046,14 @@ export default function App() {
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const callAI = async (prompt: string): Promise<string> => {
-    // 1순위: 로컬 Claude Code 서버 (React state 또는 localStorage 둘 다 체크)
-    const localActive = isLocalMode || localStorage.getItem('IS_LOCAL_MODE') === 'true';
-    const localUrl = getLocalServerUrl(); // localStorage에서 직접 읽음
-    if (localActive && localUrl) {
-      try {
-        const res = await localFetch(`${localUrl}/api/claude-chat`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        if (res.ok) return (await res.json()).text ?? '';
-      } catch (e) {
-        console.warn('[callAI] 로컬 서버 실패, 클라우드로 전환:', e);
-      }
-    }
-
-    // 2순위: Gemini REST API 직접 호출 (무료)
-    const geminiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return text;
-      }
-    } catch {}
-
-    // 3순위: OpenRouter 무료 모델
-    const orKey = localStorage.getItem('OPENROUTER_KEY');
-    if (orKey) {
-      try {
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${orKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'google/gemini-2.0-flash-lite-preview-02-05:free', messages: [{ role: 'user', content: prompt }] })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.choices?.[0]?.message?.content;
-          if (text) return text;
-        }
-      } catch {}
-    }
-
-    // 4순위: 서버리스 cloud AI (GEMINI_API_KEY 설정된 경우)
-    if (isCloudAiAvailable) {
-      const res = await fetch('/api/ai-review', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      return (await res.json()).text ?? '';
-    }
-
-    // 5순위: 브라우저 AI (오프라인 전용, 소형 모델)
-    if (isBrowserAiReady) return await runBrowserAI(prompt);
-
-    throw new Error('사용 가능한 AI가 없습니다.');
+    const localUrl = getLocalServerUrl();
+    if (!localUrl) throw new Error('로컬 서버 URL이 설정되지 않았습니다. 노트북 서버를 실행해 주세요.');
+    const res = await localFetch(`${localUrl}/api/claude-chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) throw new Error(`서버 오류 ${res.status} — 노트북 서버가 켜져 있는지 확인해 주세요.`);
+    return (await res.json()).text ?? '';
   };
 
   const AI_FORMAT_RULES = `주간업무보고서 교정 편집자로서 아래 규칙을 적용해 수정사항을 JSON 배열로만 반환하라(설명 없이).
