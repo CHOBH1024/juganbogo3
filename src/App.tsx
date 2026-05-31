@@ -387,6 +387,7 @@ export default function App() {
   const [simpleMode, setSimpleMode] = useState(false);
   const [draggingL0Id, setDraggingL0Id] = useState<number | null>(null);
   const [dragOverL0Id, setDragOverL0Id] = useState<number | null>(null);
+  const [showReportPreview, setShowReportPreview] = useState(false);
 
   // 로컬 Claude AI 검토 상태
   const [isCheckingAI, setIsCheckingAI] = useState(false);
@@ -3939,7 +3940,7 @@ const renderPreviewLines = () => {
                     );
                   })()}
                   {/* AI 검토 버튼 (사무장/관리자 전용) — Word 내보내기 위 */}
-                  {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && (role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
+                  {(role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
                     <button
                       onClick={checkWithLocalClaude}
                       disabled={isCheckingAI}
@@ -3947,6 +3948,15 @@ const renderPreviewLines = () => {
                     >
                       <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
                       {isCheckingAI ? 'AI 검토 중...' : 'AI 검토'}
+                    </button>
+                  )}
+                  {/* 서식 미리보기 */}
+                  {(role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
+                    <button
+                      onClick={() => setShowReportPreview(true)}
+                      className="mt-1 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> 서식 미리보기
                     </button>
                   )}
                   {/* 교구 Word 내보내기 (사무장용) */}
@@ -5833,6 +5843,96 @@ const renderPreviewLines = () => {
           <button className="w-full text-left px-3 py-1.5 hover:bg-slate-100 text-red-600" onClick={() => removeTableCol(tableContextMenu.id, tableContextMenu.c)}>열 삭제</button>
         </div>
       )}
+
+      {/* ── 서식 미리보기 모달 (사진·표·계층구조 포함) ── */}
+      {showReportPreview && (() => {
+        const counters = [0,0,0,0,0,0];
+        let l0Idx = 0;
+        return (
+          <div className="fixed inset-0 z-[80] flex items-start justify-center p-4 pt-8 bg-slate-900/70 backdrop-blur-sm overflow-y-auto" onClick={() => setShowReportPreview(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col mb-8" onClick={e => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                <div>
+                  <h3 className="text-white font-black text-base">{getDisplayParish(parish)} · {getDisplayChurch(church)}</h3>
+                  <p className="text-white/60 text-xs mt-0.5">서식 미리보기 — AI 검토 후 실제 출력물 형태</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={exportToWord} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+                    <Download className="w-3.5 h-3.5" /> Word 저장
+                  </button>
+                  <button onClick={() => setShowReportPreview(false)} className="text-white/60 hover:text-white p-1.5 hover:bg-white/10 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="p-6 space-y-1 overflow-y-auto max-h-[75vh] font-serif">
+                {(() => {
+                  const items = getCleanData(reportData);
+                  const cnt = [0,0,0,0,0,0];
+                  return items.map((item, idx) => {
+                    if (item.level === 0) {
+                      cnt[0]++; cnt[1]=0; cnt[2]=0; cnt[3]=0; cnt[4]=0; cnt[5]=0;
+                      const prefix = `${toRoman(cnt[0])}.`;
+                      return (
+                        <div key={item.id} className={`${idx > 0 ? 'mt-5' : ''}`}>
+                          <div className="font-black text-slate-900 text-base border-b-2 border-slate-800 pb-1 mb-2">
+                            {prefix} {item.text}
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.level === 1) { cnt[1]++; cnt[2]=0; cnt[3]=0; cnt[4]=0; cnt[5]=0; }
+                    else if (item.level === 2) { cnt[2]++; cnt[3]=0; cnt[4]=0; cnt[5]=0; }
+                    else if (item.level === 3) { cnt[3]++; cnt[4]=0; cnt[5]=0; }
+                    else if (item.level === 4) { cnt[4]++; cnt[5]=0; }
+                    else if (item.level === 5) { cnt[5]++; }
+
+                    const prefix =
+                      item.level === 1 ? `${cnt[1]}.` :
+                      item.level === 2 ? `${cnt[2]})` :
+                      item.level === 3 ? toCircled(cnt[3]) :
+                      item.level === 4 ? `${toKorSyllable(cnt[4])}.` :
+                      item.level === 5 ? `${toLatin(cnt[5])}.` : '-';
+
+                    const indent = (item.level - 1) * 16;
+
+                    return (
+                      <div key={item.id} style={{ marginLeft: `${indent}px` }} className="leading-relaxed">
+                        {item.text?.trim() && (
+                          <div className={`flex gap-2 text-sm ${item.level === 1 ? 'font-semibold text-slate-800 mt-1' : 'text-slate-700'}`}>
+                            <span className="shrink-0 text-slate-500 min-w-[24px]">{prefix}</span>
+                            <span>{item.text}</span>
+                          </div>
+                        )}
+                        {item.image && (
+                          <div className="my-2 ml-6">
+                            <img src={item.image} alt="" className="max-w-full rounded border border-slate-200 shadow-sm" style={{ maxHeight: '240px', objectFit: 'contain' }} />
+                          </div>
+                        )}
+                        {item.tableData && item.tableData.length > 0 && (
+                          <div className="my-2 ml-6 overflow-x-auto">
+                            <table className="border-collapse text-xs w-full">
+                              <tbody>
+                                {item.tableData.map((row, ri) => (
+                                  <tr key={ri}>
+                                    {row.map((cell, ci) => (
+                                      <td key={ci} className="border border-slate-300 px-2 py-1 text-slate-700 whitespace-pre-wrap" style={{ minWidth: '60px' }}>
+                                        {cell}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 교회 보고서 미리보기 모달 */}
       {previewChurchModal && (
