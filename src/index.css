@@ -58,14 +58,56 @@ body {
 @media (max-width: 768px) {
   .word-document-wrapper {
     padding: 0;
-    padding-bottom: 80px; /* Space for bottom nav on mobile */
+    padding-bottom: 80px;
   }
-  
   .word-page {
     max-width: 100%;
     min-height: 100vh;
     padding: 1rem;
     box-shadow: none;
     border: none;
+  }
+}
+
+@media print {
+  /* 인쇄 시 숨길 요소 */
+  header, nav, footer,
+  .no-print,
+  [data-print-hide],
+  button:not(.print-show),
+  .fixed,
+  .sticky { display: none !important; }
+
+  /* 배경색 강제 흰색, 텍스트 검정 */
+  body, .word-page, .word-document-wrapper {
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* A4 페이지 */
+  .word-page {
+    max-width: 100% !important;
+    min-height: auto !important;
+    padding: 1.5cm !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* 항목 번호 색상 강제 검정 */
+  .text-blue-800, .text-blue-600, .text-indigo-700 {
+    color: #1e3a5f !important;
+  }
+
+  /* 페이지 나눔 방지 */
+  .flex-col > * {
+    page-break-inside: avoid;
+  }
+
+  /* 인쇄 여백 */
+  @page {
+    margin: 1.5cm;
+    size: A4;
   }
 }

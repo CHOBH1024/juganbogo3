@@ -1,6 +1,9 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { isBrowserAIReady, initBrowserAI, runBrowserAI } from './browserAI';
-import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle, Printer, GripVertical } from 'lucide-react';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
@@ -71,6 +74,27 @@ const fetchDbData = async (id: string) => {
   return null;
 };
 
+// ── 오프라인 동기화 큐 ──────────────────────────────────────────────────────
+const SYNC_QUEUE_KEY = 'PENDING_SYNC_QUEUE';
+const enqueuePendingSync = (id: string, payload: any) => {
+  try {
+    const q: any[] = JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || '[]');
+    const idx = q.findIndex(e => e.id === id);
+    const entry = { id, payload, ts: Date.now() };
+    if (idx >= 0) q[idx] = entry; else q.push(entry);
+    localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q));
+  } catch {}
+};
+const getPendingQueue = (): {id: string, payload: any}[] => {
+  try { return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || '[]'); } catch { return []; }
+};
+const removePendingSync = (id: string) => {
+  try {
+    const q = getPendingQueue().filter(e => e.id !== id);
+    localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q));
+  } catch {}
+};
+
 const saveDbData = async (id: string, payload: any) => {
   const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
   if (isLocal) {
@@ -92,8 +116,10 @@ const saveDbData = async (id: string, payload: any) => {
     try {
       const jsonString = JSON.stringify(payload);
       await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
+      removePendingSync(id); // 성공 시 큐에서 제거
     } catch(e) {
       console.error("Storage DB save failed:", e);
+      if (!navigator.onLine) enqueuePendingSync(id, payload);
     }
   }
 
@@ -161,6 +187,51 @@ const DEFAULT_REPORT: ReportItem[] = [
   { id: 3, text: "금주 계획 및 보고", level: 0 },
   { id: 4, text: "", level: 1 }
 ];
+
+// ── 수식 번호 제거 (카카오 입력 시 중복 방지) ───────────────────────────────
+const STRIP_NUM_RE = /^[\s]*(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ|Ⅵ|Ⅶ|Ⅷ|Ⅸ|Ⅹ|[①-⑮]|\d+[.)]\s+|[가-하][.]\s+|[a-z][.]\s+)/;
+const stripLeadingNumbers = (text: string): string => text.replace(STRIP_NUM_RE, '').trimStart();
+
+// ── 이미지 압축 (공통) ──────────────────────────────────────────────────────
+const compressImageDataUrl = (dataUrl: string, maxPx = 600, quality = 0.75): Promise<{dataUrl: string, origKB: number, newKB: number}> =>
+  new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const origKB = Math.round(dataUrl.length * 0.75 / 1024);
+      if (w > h) { if (w > maxPx) { h = Math.round(h * maxPx / w); w = maxPx; } }
+      else { if (h > maxPx) { w = Math.round(w * maxPx / h); h = maxPx; } }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', quality);
+      const newKB = Math.round(compressed.length * 0.75 / 1024);
+      resolve({ dataUrl: compressed, origKB, newKB });
+    };
+    img.src = dataUrl;
+  });
+
+// ── 양력→천력 변환 ──────────────────────────────────────────────────────────
+const solarToHeavenly = (year: number, month: number, day: number): string | null => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const L = require('lunar-javascript');
+    const lunar = L.Solar.fromYmd(year, month, day).getLunar();
+    const cheonYear = year - 2012;
+    return `${cheonYear}년 ${lunar.getMonth()}월 ${lunar.getDay()}일`;
+  } catch { return null; }
+};
+
+const parseSolarDate = (input: string): {year: number, month: number, day: number} | null => {
+  const s = input.trim();
+  // 2026.5.29 or 2026-5-29 or 2026년5월29일
+  const m = s.match(/(\d{4})[.\-년]?\s*(\d{1,2})[.\-월]?\s*(\d{1,2})/);
+  if (m) return { year: +m[1], month: +m[2], day: +m[3] };
+  // 5.29 or 5월29일 (assume current year)
+  const m2 = s.match(/(\d{1,2})[.\-월]\s*(\d{1,2})/);
+  if (m2) return { year: new Date().getFullYear(), month: +m2[1], day: +m2[2] };
+  return null;
+};
 
 const toRoman = (num: number) => {
   const roman = ["", "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ"];
@@ -314,6 +385,8 @@ export default function App() {
   const [quickEntryMode, setQuickEntryMode] = useState(false);
   const [quickEntryText, setQuickEntryText] = useState('');
   const [simpleMode, setSimpleMode] = useState(false);
+  const [draggingL0Id, setDraggingL0Id] = useState<number | null>(null);
+  const [dragOverL0Id, setDragOverL0Id] = useState<number | null>(null);
 
   // 로컬 Claude AI 검토 상태
   const [isCheckingAI, setIsCheckingAI] = useState(false);
@@ -456,6 +529,7 @@ export default function App() {
   const [newWeekIsResetting, setNewWeekIsResetting] = useState(false);
 
   // 범용 비밀번호 모달
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => getPendingQueue().length);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordModalTitle, setPasswordModalTitle] = useState('');
   const [passwordModalInput, setPasswordModalInput] = useState('');
@@ -593,6 +667,31 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'notice') loadNotices();
   }, [activeTab]);
+
+  // 오프라인 → 온라인 복귀 시 대기 큐 자동 플러시
+  useEffect(() => {
+    const flushPendingSyncs = async () => {
+      const queue = getPendingQueue();
+      if (queue.length === 0) return;
+      let flushed = 0;
+      for (const { id, payload } of queue) {
+        try {
+          if (supabase) {
+            await supabase.storage.from('images').upload(`db_reports/${id}.json`, JSON.stringify(payload), { upsert: true, contentType: 'application/json' });
+            removePendingSync(id);
+            flushed++;
+          }
+        } catch {}
+      }
+      if (flushed > 0) {
+        toast.success(`✅ ${flushed}개 항목 오프라인 저장 완료`);
+        setPendingSyncCount(getPendingQueue().length);
+      }
+    };
+    const handleOnline = () => { setPendingSyncCount(getPendingQueue().length); flushPendingSyncs(); };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -1638,8 +1737,8 @@ ${reportText}`;
       );
     }
 
-    const MAX_WIDTH = 800;
-    const MAX_HEIGHT = 800;
+    const MAX_WIDTH = 600;
+    const MAX_HEIGHT = 600;
     let finalWidth = cropWidth;
     let finalHeight = cropHeight;
 
@@ -1665,7 +1764,7 @@ ${reportText}`;
       ctx.drawImage(tempCanvas, 0, 0, finalWidth, finalHeight);
     }
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
     setCropModalOpen(false);
 
     // Optimistic update
@@ -1750,8 +1849,10 @@ ${reportText}`;
       const file = imageItem.getAsFile();
       if (file) {
         const reader = new FileReader();
-        reader.onload = (ev) => {
-          const dataUrl = ev.target?.result as string;
+        reader.onload = async (ev) => {
+          const raw = ev.target?.result as string;
+          const { dataUrl, origKB, newKB } = await compressImageDataUrl(raw);
+          if (origKB > newKB + 50) toast.info(`이미지 압축: ${origKB}KB → ${newKB}KB`);
           const img = new Image();
           img.onload = () => {
             setReportData(data => data.map(item => item.id === id ? {
@@ -2333,6 +2434,22 @@ ${reportText}`;
     setReportData(newReportData);
   };
 
+  // L0 드래그앤드롭으로 블록 재배치
+  const rearrangeL0Blocks = (dragId: number, targetId: number) => {
+    if (dragId === targetId) return;
+    const blocks: ReportItem[][] = [];
+    let cur: ReportItem[] = [];
+    for (const item of reportData) {
+      if (item.level === 0) { if (cur.length) blocks.push(cur); cur = [item]; }
+      else cur.push(item);
+    }
+    if (cur.length) blocks.push(cur);
+    const fromIdx = blocks.findIndex(b => b[0].id === dragId);
+    const toIdx = blocks.findIndex(b => b[0].id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    setReportData(arrayMove(blocks, fromIdx, toIdx).flat());
+  };
+
   // L0 블록 복제 (대항목 + 하위 항목 전체)
   const duplicateL0Block = (index: number) => {
     const targetItem = reportData[index];
@@ -2536,12 +2653,12 @@ ${reportText}`;
       const raw = line.trimEnd();
       if (!raw.trim()) continue;
       if (raw.startsWith('# ')) {
-        newData.push({ id: idCounter++, text: raw.slice(2).trim(), level: 0 });
+        newData.push({ id: idCounter++, text: stripLeadingNumbers(raw.slice(2).trim()), level: 0 });
       } else {
         // 들여쓰기 2칸 단위로 level 계산 (최소 L1)
         const leading = raw.length - raw.trimStart().length;
         const level = Math.min(5, 1 + Math.floor(leading / 2));
-        newData.push({ id: idCounter++, text: raw.trim(), level });
+        newData.push({ id: idCounter++, text: stripLeadingNumbers(raw.trim()), level });
       }
     }
     if (newData.length === 0) { toast.warning('입력된 내용이 없습니다.'); return; }
@@ -3285,6 +3402,11 @@ const renderPreviewLines = () => {
               </span>
             );
           })()}
+          {pendingSyncCount > 0 && (
+            <span className="hidden md:inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded text-[11px] font-bold" title="오프라인 저장 대기 중. 인터넷 연결 시 자동 동기화됩니다.">
+              ⚡ {pendingSyncCount}개 대기
+            </span>
+          )}
           <span className="text-blue-600 font-extrabold hidden md:inline whitespace-nowrap">☁️ 클라우드</span>
           
           <button 
@@ -3608,6 +3730,15 @@ const renderPreviewLines = () => {
               <div className="flex gap-2 flex-wrap">
                 {activeTab !== 'notice_write' && (
                   <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    title="인쇄 전용 뷰"
+                  >
+                    <Printer className="w-4 h-4" />
+                  </button>
+                )}
+                {activeTab !== 'notice_write' && (
+                  <button
                     onClick={() => { setSimpleMode(v => !v); if (quickEntryMode) setQuickEntryMode(false); }}
                     className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${simpleMode ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'}`}
                     title="모바일 간편 입력 — 글+사진 카드 방식"
@@ -3795,7 +3926,9 @@ const renderPreviewLines = () => {
                       <button
                         onClick={() => {
                           const dateStr = appConfig?.solarDate || '이번 주';
-                          const msg = `[${parish} 주간보고 알림]\n${dateStr} 주간보고 미제출 교회입니다.\n미제출: ${notSubmitted.join(', ')}\n빠른 제출 부탁드립니다.`;
+                          const deadlineStr = appConfig?.deadline ? `\n마감: ${appConfig.deadline}까지 제출 부탁드립니다.` : '\n빠른 제출 부탁드립니다.';
+                          const heavenlyStr = appConfig?.heavenlyDate ? ` (천력 ${appConfig.heavenlyDate})` : '';
+                          const msg = `[${getDisplayParish(parish)} 주간보고 알림]\n${dateStr}${heavenlyStr} 기준 미제출 교회\n\n${notSubmitted.map(c => `• ${getDisplayChurch(c)}`).join('\n')}${deadlineStr}`;
                           navigator.clipboard.writeText(msg);
                           toast.success('미제출 알림 문자가 복사되었습니다.');
                         }}
@@ -3931,8 +4064,20 @@ const renderPreviewLines = () => {
                   editorCounters[0]++; editorCounters[1]=0; editorCounters[2]=0; editorCounters[3]=0; editorCounters[4]=0; editorCounters[5]=0;
                   const isCollapsed = collapsedSections.has(item.id);
                   return (
-                    <div key={item.id} className="flex flex-col gap-2 py-3 mt-4 first:mt-0 group">
+                    <div
+                      key={item.id}
+                      className={`flex flex-col gap-2 py-3 mt-4 first:mt-0 group transition-all ${dragOverL0Id === item.id && draggingL0Id !== item.id ? 'border-t-2 border-blue-400' : ''}`}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDraggingL0Id(item.id); }}
+                      onDragOver={(e) => { e.preventDefault(); if (draggingL0Id !== null) setDragOverL0Id(item.id); }}
+                      onDragEnd={() => { setDraggingL0Id(null); setDragOverL0Id(null); }}
+                      onDrop={(e) => { e.preventDefault(); if (draggingL0Id !== null && draggingL0Id !== item.id) rearrangeL0Blocks(draggingL0Id, item.id); setDraggingL0Id(null); setDragOverL0Id(null); }}
+                      style={{ opacity: draggingL0Id === item.id ? 0.4 : 1 }}
+                    >
                       <div className="font-bold text-lg text-blue-800 border-b-2 border-blue-100 w-full pb-1 flex items-center gap-2">
+                        <span className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 shrink-0" title="드래그하여 순서 변경">
+                          <GripVertical className="w-4 h-4" />
+                        </span>
                         <button
                           onClick={() => toggleSection(item.id)}
                           className="shrink-0 text-blue-400 hover:text-blue-600 transition-colors"
@@ -6197,26 +6342,45 @@ const renderPreviewLines = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">양력 날짜 <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">날짜 선택 <span className="text-xs text-slate-400 font-normal">(천력 자동 계산)</span></label>
                 <input
-                  type="text"
-                  placeholder="예: 5월 4주차"
+                  type="date"
                   className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
-                  value={newWeekSolarDate}
-                  onChange={e => { setNewWeekSolarDate(e.target.value); setNewWeekPasswordError(''); }}
+                  onChange={e => {
+                    const v = e.target.value; // YYYY-MM-DD
+                    if (!v) return;
+                    const [y, m, d] = v.split('-').map(Number);
+                    const solar = `${y}.${m}.${d}`;
+                    setNewWeekSolarDate(solar);
+                    const heavenly = solarToHeavenly(y, m, d);
+                    if (heavenly) setNewWeekHeavenlyDate(heavenly);
+                    setNewWeekPasswordError('');
+                  }}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">천력 날짜 <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  placeholder="예: 4월 11일"
-                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
-                  value={newWeekHeavenlyDate}
-                  onChange={e => { setNewWeekHeavenlyDate(e.target.value); setNewWeekPasswordError(''); }}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">양력 표시 <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="예: 2026.5.29"
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none"
+                    value={newWeekSolarDate}
+                    onChange={e => { setNewWeekSolarDate(e.target.value); setNewWeekPasswordError(''); }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">천력 <span className="text-blue-500 text-xs font-normal">자동입력</span> <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="예: 14년 4월 19일"
+                    className="w-full border border-blue-200 bg-blue-50 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                    value={newWeekHeavenlyDate}
+                    onChange={e => { setNewWeekHeavenlyDate(e.target.value); setNewWeekPasswordError(''); }}
+                  />
+                </div>
               </div>
             </div>
             <div>
