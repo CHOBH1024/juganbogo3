@@ -2672,13 +2672,38 @@ ${reportText}`;
   };
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
+  // 클릭 시마다 Supabase에서 최신 서버 URL을 받아 localStorage 갱신
+  const refreshServerUrl = async (): Promise<string | null> => {
+    try {
+      const info = await fetchDbData('SYSTEM_SERVER_URL');
+      if (info?.url) {
+        const ping = await fetch(`${info.url}/api/ping`, {
+          signal: AbortSignal.timeout(4000),
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (ping.ok) {
+          localStorage.setItem('IS_LOCAL_MODE', 'true');
+          localStorage.setItem('LOCAL_SERVER_URL', info.url);
+          setIsLocalMode(true);
+          return info.url;
+        }
+      }
+    } catch {}
+    return null;
+  };
+
   const checkWithLocalClaude = async () => {
-    const localActive = isLocalMode || localStorage.getItem('IS_LOCAL_MODE') === 'true';
-    const aiMode = localActive ? '🖥️ 로컬 Claude' : '☁️ Gemini AI';
-    toast.info(`${aiMode}로 검토 중...`, { autoClose: 2000 });
     setIsCheckingAI(true);
     setAiCorrections(null);
     try {
+      // 버튼 클릭마다 서버 URL 재확인
+      const serverUrl = await refreshServerUrl();
+      if (!serverUrl) {
+        toast.error('노트북 서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인해 주세요.');
+        setIsCheckingAI(false);
+        return;
+      }
+      toast.info('🖥️ 로컬 Claude로 검토 중... (20~40초)', { autoClose: 3000 });
       const cleanData = getCleanData(reportData);
       const reportText = cleanData.map(item => {
         return `[L${item.level}] ${'  '.repeat(item.level)}${item.text || ''}`.trimEnd();
@@ -3927,14 +3952,27 @@ const renderPreviewLines = () => {
                   })()}
                   {/* AI 검토 버튼 (사무장/관리자 전용) — Word 내보내기 위 */}
                   {(role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
-                    <button
-                      onClick={checkWithLocalClaude}
-                      disabled={isCheckingAI}
-                      className={`mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors border ${isCheckingAI ? 'bg-purple-100 border-purple-300 text-purple-500 cursor-wait' : 'bg-purple-600 hover:bg-purple-700 border-purple-600 text-white'}`}
-                    >
-                      <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
-                      {isCheckingAI ? 'AI 검토 중...' : 'AI 검토'}
-                    </button>
+                    <>
+                      {/* 교구 전체 AI 검토 (사무장용) */}
+                      {role === 'manager' && (
+                        <button
+                          onClick={startParishAiReview}
+                          disabled={isCheckingAI || isAdminCheckingAI}
+                          className={`mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors border ${isAdminCheckingAI ? 'bg-indigo-100 border-indigo-300 text-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 border-indigo-600 text-white'}`}
+                        >
+                          <Bot className={`w-4 h-4 ${isAdminCheckingAI ? 'animate-spin' : ''}`} />
+                          {isAdminCheckingAI ? '교구 검토 중...' : `${getDisplayParish(parish)} 교구 전체 AI 검토`}
+                        </button>
+                      )}
+                      <button
+                        onClick={checkWithLocalClaude}
+                        disabled={isCheckingAI}
+                        className={`mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors border ${isCheckingAI ? 'bg-purple-100 border-purple-300 text-purple-500 cursor-wait' : 'bg-purple-600 hover:bg-purple-700 border-purple-600 text-white'}`}
+                      >
+                        <Bot className={`w-4 h-4 ${isCheckingAI ? 'animate-spin' : ''}`} />
+                        {isCheckingAI ? 'AI 검토 중...' : `${getDisplayChurch(church)} AI 검토`}
+                      </button>
+                    </>
                   )}
                   {/* 서식 미리보기 */}
                   {(role === 'manager' || role === 'admin') && activeTab !== 'notice_write' && (
