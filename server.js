@@ -617,11 +617,11 @@ app.post('/api/claude-chat', async (req, res) => {
   // Windows: cmd /c "type file | claude --print"
   // Unix:    sh -c "claude --print < file"
   const isWin = process.platform === 'win32';
+  // chcp 65001 = UTF-8 코드페이지로 전환 후 실행
   const cmd = isWin
-    ? `cmd /c "type "${tmpFile}" | claude --print"`
+    ? `cmd /c "chcp 65001 > nul && type "${tmpFile}" | claude --print"`
     : `claude --print < "${tmpFile}"`;
 
-  // 프로젝트 컨텍스트 없는 임시 디렉토리에서 실행
   const cwd = os.tmpdir();
   exec(cmd, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, cwd }, (err, stdout, stderr) => {
     try { fs.unlinkSync(tmpFile); } catch {}
