@@ -5,6 +5,11 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { spawn, exec } from 'child_process';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://xootqaeuixpsszcejhev.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhvb3RxYWV1aXhwc3N6Y2VqaGV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODk3MDgsImV4cCI6MjA5NDM2NTcwOH0.W2h7M1zUZFNG6KjtQm92CfG3ixcllhhW2_Az6loxYJI';
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ImageRun } from 'docx';
 import { google } from 'googleapis';
 
@@ -870,10 +875,36 @@ if (fs.existsSync(DIST_DIR)) {
   console.log(`[Static] Serving React production build from ./dist`);
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`=================================================`);
   console.log(`🏠 Weekly Report Local Server is running on:`);
   console.log(`   - Local PC:   http://localhost:${PORT}`);
-  console.log(`   - LAN URL:    http://0.0.0.0:${PORT} (Access from mobile!)`);
   console.log(`=================================================`);
+
+  // ngrok URL 자동 감지 후 Supabase에 등록
+  const registerNgrok = async () => {
+    for (let i = 0; i < 10; i++) {
+      try {
+        const res = await fetch('http://localhost:4040/api/tunnels');
+        if (res.ok) {
+          const data = await res.json();
+          const url = data?.tunnels?.[0]?.public_url;
+          if (url) {
+            const payload = { id: 'SYSTEM_SERVER_URL', url, updated_at: new Date().toISOString() };
+            const json = JSON.stringify(payload);
+            await sb.storage.from('images').upload('db_reports/SYSTEM_SERVER_URL.json', json, { upsert: true, contentType: 'application/json' });
+            console.log(`✅ ngrok URL 등록됨: ${url}`);
+            return;
+          }
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    // ngrok 없으면 로컬 IP만 등록
+    const payload = { id: 'SYSTEM_SERVER_URL', url: null, updated_at: new Date().toISOString() };
+    await sb.storage.from('images').upload('db_reports/SYSTEM_SERVER_URL.json', JSON.stringify(payload), { upsert: true, contentType: 'application/json' }).catch(() => {});
+    console.log('⚠️ ngrok 미감지 — 로컬 전용 모드');
+  };
+
+  registerNgrok();
 });

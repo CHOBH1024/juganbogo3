@@ -704,12 +704,35 @@ export default function App() {
       } catch (e) { console.error(e); }
     };
     loadConfig();
-    // OpenRouter 키 사전 설정 (무료 모델 우회용)
-    if (!localStorage.getItem('OPENROUTER_KEY')) {
-      localStorage.setItem('OPENROUTER_KEY', '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');
-    }
     // 앱 시작 시 공지사항 미리 로드 (배지 표시를 위해)
     loadNotices();
+    // 로컬 서버 URL 자동 감지 (노트북 켜진 상태 기준)
+    const autoDetectServer = async () => {
+      try {
+        // 1. Supabase에서 등록된 서버 URL 확인
+        const serverInfo = await fetchDbData('SYSTEM_SERVER_URL');
+        if (serverInfo?.url) {
+          // 실제로 응답하는지 ping
+          try {
+            const ping = await fetch(`${serverInfo.url}/api/ping`, {
+              signal: AbortSignal.timeout(3000),
+              headers: { 'ngrok-skip-browser-warning': 'true' }
+            });
+            if (ping.ok) {
+              localStorage.setItem('IS_LOCAL_MODE', 'true');
+              localStorage.setItem('LOCAL_SERVER_URL', serverInfo.url);
+              setIsLocalMode(true);
+              console.log('✅ 로컬 서버 자동 연결:', serverInfo.url);
+              return;
+            }
+          } catch {}
+        }
+        // 2. 서버 없으면 로컬 모드 해제
+        localStorage.removeItem('IS_LOCAL_MODE');
+        setIsLocalMode(false);
+      } catch {}
+    };
+    autoDetectServer();
   }, []);
 
   const handleNoticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
