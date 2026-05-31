@@ -1115,56 +1115,19 @@ export default function App() {
     throw new Error('사용 가능한 AI가 없습니다.');
   };
 
-  const AI_FORMAT_RULES = `당신은 한국 종교단체 주간업무보고서를 교정하는 전문 편집자입니다.
-아래 규칙에 따라 보고서를 꼼꼼히 검토하고, 수정이 필요한 모든 항목을 빠짐없이 JSON으로 반환하세요.
+  const AI_FORMAT_RULES = `주간업무보고서 교정 편집자로서 아래 규칙을 적용해 수정사항을 JSON 배열로만 반환하라(설명 없이).
 
-━━━━ 필수 교정 항목 (모두 체크) ━━━━
+교정 규칙:
+- 날짜/일자→일시, 참가자/참여자/출석자→참석자, 세부내용→주요내용, 예정사항→향후계획
+- 콜론 뒤 공백 1개 통일 ("일시 :"→"일시: ")
+- L0=대분류제목, L1=행사명, L2=세부정보(일시·장소·인원순), 레벨 오류 시 newLevel 지정
+- 과거형이 금주계획에/미래형이 전주보고에 있으면 지적
+- 맞춤법·띄어쓰기·중복표현 교정
+- 숫자 한글→아라비아("이십명"→"20명")
 
-① 용어 통일 (무조건 교정)
-  날짜/일자 → 일시
-  참가자/참여자/출석자/인원수 → 참석자
-  참가인원/출석인원 → 인원
-  세부내용/세부사항 → 주요내용
-  예정사항/향후사항 → 향후계획
-  진행사항 → 진행상황
-  실시함/진행함 → 진행
-  참석함/출석함 → 참석
-
-② 콜론 표기 통일 (무조건 교정)
-  "일시 :" "일시-" "일시ː" → "일시: " (콜론 뒤 공백 1개)
-  "장소 :" → "장소: "
-  콜론 없이 "일시 2026년..." → "일시: 2026년..."
-
-③ 계층 구조 오류 (L0/L1/L2/L3 레벨 확인)
-  L0: 전주보고/금주계획 같은 대분류 제목만
-  L1: 예배명/행사명/사역명 (주일예배, 수요예배, 구역모임 등)
-  L2: 일시·장소·인원·주요내용 등 세부정보
-  L3: L2 항목의 추가 설명
-  레벨이 맞지 않으면 newLevel 필드로 교정 제안
-
-④ 전주보고/금주계획 혼재 감지
-  과거형(~했음, ~완료, ~진행함)이 금주계획에 있으면 지적
-  미래형(~예정, ~할 계획)이 전주보고에 있으면 지적
-
-⑤ 맞춤법·문법
-  오탈자, 띄어쓰기, 조사 오류 모두 교정
-  예: "되었습니다" → "되었습니다" (o), "됬습니다" → "되었습니다" (x→o)
-
-⑥ 중복·잉여 표현 제거
-  "일시: 일시: ..." 같은 중복 → 한 번만
-  의미 없는 반복 조사, 어미 통일
-
-⑦ 숫자 표기 통일
-  "이십명" → "20명", "삼십 명" → "30명"
-  날짜 표기: "26일(일)" → "26일(일요일)" 또는 일관성 유지
-
-━━━━ 중요 지시사항 ━━━━
-- 수정사항이 있으면 반드시 JSON에 포함. 절대 빠뜨리지 말 것.
-- 내용을 요약하거나 삭제하지 말 것. 원문 분량 유지.
-- original 필드: 보고서에 나온 텍스트 그대로 (앞뒤 공백 포함).
-- corrected 필드: 교정된 텍스트.
-- newLevel: 계층 변경 필요시에만 포함 (0,1,2,3,4,5 중 하나).
-- reason: 왜 수정했는지 한 줄로.`;
+출력형식(JSON만, 마크다운 없이):
+[{"id":n,"original":"원문그대로","corrected":"교정문","reason":"한줄이유"}]
+레벨변경 시 "newLevel":n 추가. 수정없으면 [].`;
 
   const startParishAiReview = async () => {
     if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
@@ -6136,17 +6099,24 @@ const renderPreviewLines = () => {
       {/* AI 검토 중 로딩 모달 */}
       {isCheckingAI && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl px-8 py-8 flex flex-col items-center gap-4 w-full max-w-xs">
-            <div className="w-14 h-14 rounded-full bg-purple-100 flex items-center justify-center">
-              <Bot className="w-7 h-7 text-purple-600 animate-spin" />
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-8 flex flex-col items-center gap-4 w-full max-w-sm">
+            <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
+              <Bot className="w-8 h-8 text-purple-600 animate-spin" />
             </div>
             <div className="text-center">
-              <div className="font-black text-slate-800 text-base">AI 검토 중...</div>
-              <div className="text-xs text-slate-500 mt-1">{getDisplayChurch(church)} 보고서를 분석하고 있습니다</div>
+              <div className="font-black text-slate-800 text-lg">AI 검토 중...</div>
+              <div className="text-sm text-slate-600 mt-1 font-medium">{getDisplayChurch(church)} 보고서 분석 중</div>
+              <div className="text-xs text-slate-400 mt-2 flex items-center justify-center gap-1">
+                <Clock className="w-3 h-3" />
+                {isLocalMode || localStorage.getItem('IS_LOCAL_MODE') === 'true'
+                  ? '로컬 Claude 처리 중 — 약 20~40초 소요됩니다'
+                  : 'AI 서버 처리 중 — 잠시만 기다려 주세요'}
+              </div>
             </div>
-            <div className="w-full bg-purple-100 rounded-full h-1.5 overflow-hidden">
-              <div className="bg-purple-500 h-1.5 rounded-full animate-pulse w-2/3" />
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div className="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full animate-[loading_3s_ease-in-out_infinite]" style={{width:'60%', animation:'pulse 2s ease-in-out infinite'}} />
             </div>
+            <p className="text-[11px] text-slate-400 text-center">버튼을 클릭하면 되돌릴 수 없으니 완료될 때까지 기다려 주세요</p>
           </div>
         </div>
       )}
