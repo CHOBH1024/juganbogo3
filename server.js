@@ -103,7 +103,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type,X-Filename');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type,X-Filename,ngrok-skip-browser-warning,Authorization');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
