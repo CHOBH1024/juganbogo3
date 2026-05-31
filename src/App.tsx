@@ -1023,6 +1023,7 @@ export default function App() {
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const callAI = async (prompt: string): Promise<string> => {
+    // 1순위: 로컬 Claude Code 서버
     if (isLocalMode) {
       const serverUrl = getLocalServerUrl();
       const res = await localFetch(`${serverUrl}/api/claude-chat`, {
@@ -1031,16 +1032,60 @@ export default function App() {
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       return (await res.json()).text ?? '';
-    } else if (isCloudAiAvailable) {
+    }
+
+    // 2순위: Gemini REST API 직접 호출 (무료)
+    const geminiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
+      }
+    } catch {}
+
+    // 3순위: OpenRouter 무료 모델
+    const orKey = localStorage.getItem('OPENROUTER_KEY');
+    if (orKey) {
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${orKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'google/gemini-2.0-flash-lite-preview-02-05:free', messages: [{ role: 'user', content: prompt }] })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content;
+          if (text) return text;
+        }
+      } catch {}
+    }
+
+    // 4순위: 서버리스 cloud AI (GEMINI_API_KEY 설정된 경우)
+    if (isCloudAiAvailable) {
       const res = await fetch('/api/ai-review', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
       });
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       return (await res.json()).text ?? '';
-    } else {
-      return await runBrowserAI(prompt);
     }
+
+    // 5순위: 브라우저 AI (오프라인 전용, 소형 모델)
+    if (isBrowserAiReady) return await runBrowserAI(prompt);
+
+    throw new Error('사용 가능한 AI가 없습니다.');
   };
 
   const AI_FORMAT_RULES = `━━━━ 보고서 서식 기준 ━━━━
@@ -2687,11 +2732,7 @@ ${reportText}`;
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   const checkWithLocalClaude = async () => {
-    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) {
-      toast.error('AI를 사용할 수 없습니다. 로컬 서버를 실행하거나 브라우저 AI를 다운로드하세요.');
-      return;
-    }
-    const aiMode = isLocalMode ? '🖥️ 로컬 Claude' : isCloudAiAvailable ? '☁️ 클라우드 AI' : '🤖 브라우저 AI';
+    const aiMode = isLocalMode ? '🖥️ 로컬 Claude' : '☁️ Gemini AI';
     toast.info(`${aiMode}로 검토 중...`, { autoClose: 2000 });
     setIsCheckingAI(true);
     setAiCorrections(null);
