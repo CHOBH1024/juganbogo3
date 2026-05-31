@@ -2672,23 +2672,39 @@ ${reportText}`;
   };
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
-  // 클릭 시마다 Supabase에서 최신 서버 URL을 받아 localStorage 갱신
+  // 클릭 시마다 서버 URL 재확인 — Supabase → 직접 ping
   const refreshServerUrl = async (): Promise<string | null> => {
+    // 후보 URL 목록: localStorage에 저장된 것 + Supabase에서 받은 것
+    const candidates: string[] = [];
+    const stored = localStorage.getItem('LOCAL_SERVER_URL');
+    if (stored) candidates.push(stored);
+
     try {
-      const info = await fetchDbData('SYSTEM_SERVER_URL');
-      if (info?.url) {
-        const ping = await fetch(`${info.url}/api/ping`, {
+      // Supabase storage에서 직접 다운로드
+      const sbUrl = 'https://xootqaeuixpsszcejhev.supabase.co/storage/v1/object/images/db_reports/SYSTEM_SERVER_URL.json';
+      const sbKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhvb3RxYWV1aXhwc3N6Y2VqaGV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODk3MDgsImV4cCI6MjA5NDM2NTcwOH0.W2h7M1zUZFNG6KjtQm92CfG3ixcllhhW2_Az6loxYJI';
+      const r = await fetch(sbUrl, { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` }, signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        const data = await r.json();
+        if (data?.url && !candidates.includes(data.url)) candidates.push(data.url);
+      }
+    } catch {}
+
+    // 각 후보 URL ping 테스트
+    for (const url of candidates) {
+      try {
+        const ping = await fetch(`${url}/api/ping`, {
           signal: AbortSignal.timeout(4000),
           headers: { 'ngrok-skip-browser-warning': 'true' }
         });
         if (ping.ok) {
           localStorage.setItem('IS_LOCAL_MODE', 'true');
-          localStorage.setItem('LOCAL_SERVER_URL', info.url);
+          localStorage.setItem('LOCAL_SERVER_URL', url);
           setIsLocalMode(true);
-          return info.url;
+          return url;
         }
-      }
-    } catch {}
+      } catch {}
+    }
     return null;
   };
 
