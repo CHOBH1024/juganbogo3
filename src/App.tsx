@@ -1046,15 +1046,19 @@ export default function App() {
   }, [adminAutoRefresh, activeTab, refreshFromCloud]);
 
   const callAI = async (prompt: string): Promise<string> => {
-    // 1순위: 로컬 Claude Code 서버
-    if (isLocalMode) {
-      const serverUrl = getLocalServerUrl();
-      const res = await localFetch(`${serverUrl}/api/claude-chat`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      return (await res.json()).text ?? '';
+    // 1순위: 로컬 Claude Code 서버 (React state 또는 localStorage 둘 다 체크)
+    const localActive = isLocalMode || localStorage.getItem('IS_LOCAL_MODE') === 'true';
+    const localUrl = getLocalServerUrl(); // localStorage에서 직접 읽음
+    if (localActive && localUrl) {
+      try {
+        const res = await localFetch(`${localUrl}/api/claude-chat`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        if (res.ok) return (await res.json()).text ?? '';
+      } catch (e) {
+        console.warn('[callAI] 로컬 서버 실패, 클라우드로 전환:', e);
+      }
     }
 
     // 2순위: Gemini REST API 직접 호출 (무료)
@@ -2769,7 +2773,8 @@ ${reportText}`;
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   const checkWithLocalClaude = async () => {
-    const aiMode = isLocalMode ? '🖥️ 로컬 Claude' : '☁️ Gemini AI';
+    const localActive = isLocalMode || localStorage.getItem('IS_LOCAL_MODE') === 'true';
+    const aiMode = localActive ? '🖥️ 로컬 Claude' : '☁️ Gemini AI';
     toast.info(`${aiMode}로 검토 중...`, { autoClose: 2000 });
     setIsCheckingAI(true);
     setAiCorrections(null);
