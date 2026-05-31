@@ -1,5 +1,4 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { isBrowserAIReady, initBrowserAI, runBrowserAI } from './browserAI';
 import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle, Printer, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -311,10 +310,6 @@ export default function App() {
 
   const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
-  const [isCloudAiAvailable, setIsCloudAiAvailable] = useState(false);
-  const [isBrowserAiReady, setIsBrowserAiReady] = useState(false);
-  const [isBrowserAiLoading, setIsBrowserAiLoading] = useState(false);
-  const [browserAiProgress, setBrowserAiProgress] = useState(0);
 
   // 로컬 서버 자동 감지 (마운트 시 ping — 실패 시 isLocalMode 리셋)
   useEffect(() => {
@@ -334,13 +329,6 @@ export default function App() {
     detect();
   }, []);
 
-  // Vercel 클라우드 AI 가용 여부 확인
-  useEffect(() => {
-    fetch('/api/ai-review')
-      .then(r => r.json())
-      .then(d => { if (d.available) setIsCloudAiAvailable(true); })
-      .catch(() => {});
-  }, []);
   const [parish, setParish] = useState(() => localStorage.getItem('APP_PARISH') || "천원특별");
   const [church, setChurch] = useState(() => localStorage.getItem('APP_CHURCH') || PARISH_CHURCH_MAP["천원특별"][0]);
   
@@ -1071,7 +1059,7 @@ export default function App() {
 레벨변경 시 "newLevel":n 추가. 수정없으면 [].`;
 
   const startParishAiReview = async () => {
-    if (!isLocalMode && !isCloudAiAvailable && !isBrowserAiReady) return;
+    if (!isLocalMode) { toast.error('노트북 서버가 연결되어 있지 않습니다.'); return; }
 
     const churches = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
     if (churches.length === 0) { toast.warning('교구 교회 목록이 없습니다.'); return; }
@@ -2568,24 +2556,7 @@ ${reportText}`;
           throw new Error("Ollama API failed");
         }
       } else {
-        let googleApiKey = localStorage.getItem('GEMINI_KEY') || 'AIzaSyAZBlFO30dN6Y1kOOmH1I24wCDqQi-xm-M';
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: aiPrompt + `\n\n입력 데이터:\n${htmlContent}` }] }],
-            generationConfig: { responseMimeType: "application/json" }
-          })
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        } else if (response.status === 429) {
-          throw new Error("RATE_LIMIT");
-        } else {
-          throw new Error("API_ERROR");
-        }
+        throw new Error('노트북 서버에 연결되어 있지 않습니다. 서버를 실행해 주세요.');
       }
 
       const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -2655,21 +2626,6 @@ ${reportText}`;
     toast.success(`${newData.length}개 항목이 적용되었습니다.`);
   };
 
-  // ── 브라우저 AI 초기화 ──────────────────────────────────────────────────
-  const downloadBrowserAI = async () => {
-    if (isBrowserAiLoading) return;
-    setIsBrowserAiLoading(true);
-    setBrowserAiProgress(0);
-    try {
-      await initBrowserAI((pct) => setBrowserAiProgress(pct));
-      setIsBrowserAiReady(true);
-      toast.success('AI 모델 준비 완료! 이제 인터넷 없이도 AI 검토 사용 가능합니다.');
-    } catch (err: any) {
-      toast.error(`AI 모델 다운로드 실패: ${err.message}`);
-    } finally {
-      setIsBrowserAiLoading(false);
-    }
-  };
 
   // ── 로컬 Claude AI 검토 ──────────────────────────────────────────────────
   // 클릭 시마다 서버 URL 재확인 — Supabase → 직접 ping
@@ -5214,7 +5170,7 @@ const renderPreviewLines = () => {
               </div>
 
               {/* Parish AI Review — 로컬 or 클라우드 or 브라우저 AI */}
-              {(isLocalMode || isCloudAiAvailable || isBrowserAiReady) && (
+              {isLocalMode && (
                 <button
                   onClick={startParishAiReview}
                   disabled={isAdminCheckingAI || !!adminCompilationProgress}
@@ -5339,42 +5295,10 @@ const renderPreviewLines = () => {
                       }
                     }}
                   />
-                  <span className={`text-[10px] font-bold shrink-0 ${(isLocalMode || isCloudAiAvailable || isBrowserAiReady) ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    {isLocalMode ? '🟢 로컬 AI' : isCloudAiAvailable ? '🟢 클라우드 AI' : isBrowserAiReady ? '🟢 브라우저 AI' : '⚪ AI 꺼짐'}
+                  <span className={`text-[10px] font-bold shrink-0 ${isLocalMode ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    {isLocalMode ? '🟢 로컬 AI' : '⚪ 서버 꺼짐'}
                   </span>
                 </div>
-
-                {/* 브라우저 AI 다운로드 — PC/API 없이 사용 */}
-                {!isLocalMode && !isCloudAiAvailable && (
-                  <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
-                    {isBrowserAiReady ? (
-                      <div className="flex items-center gap-2 text-xs text-violet-700 font-bold">
-                        <Bot className="w-3.5 h-3.5" /> 브라우저 AI 사용 중 (오프라인 가능)
-                      </div>
-                    ) : isBrowserAiLoading ? (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 text-xs text-violet-700 font-bold">
-                          <Bot className="w-3.5 h-3.5 animate-spin" /> AI 모델 다운로드 중... {browserAiProgress}%
-                        </div>
-                        <div className="w-full bg-violet-100 rounded-full h-1.5">
-                          <div className="bg-violet-500 h-1.5 rounded-full transition-all" style={{ width: `${browserAiProgress}%` }} />
-                        </div>
-                        <div className="text-[10px] text-violet-500">최초 1회만 다운로드 (약 300MB). 이후 오프라인 사용 가능.</div>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <div className="text-xs text-violet-700 font-bold">브라우저 AI 설치 (PC·API 불필요)</div>
-                        <div className="text-[10px] text-violet-500">최초 1회 약 300MB 다운로드. 이후 인터넷 없이도 AI 검토 가능.</div>
-                        <button
-                          onClick={downloadBrowserAI}
-                          className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white font-bold transition-colors"
-                        >
-                          <Bot className="w-3.5 h-3.5" /> AI 모델 다운로드
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 <div className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border text-xs ${
                   driveStatus?.authenticated ? 'bg-emerald-50 border-emerald-200' :
