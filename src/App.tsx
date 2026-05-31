@@ -2263,21 +2263,17 @@ ${reportText}`;
     setTableContextMenu(null);
   };
 
-  const handleParishChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    // 자동저장 useEffect가 새 교구 키로 이전 데이터를 덮어쓰지 않도록
-    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+  const handleParishChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     isLoadingDataRef.current = true;
-    handleSave(false);
+    await handleSave(false); // 현재 데이터 저장 완료 후 전환
     const newParish = e.target.value;
     setParish(newParish);
     setChurch(PARISH_CHURCH_MAP[newParish][0]);
   };
 
-  const handleChurchChange = (newChurch: string) => {
-    // 자동저장 useEffect가 새 교회 키로 이전 데이터를 덮어쓰지 않도록
-    // 상태 변경 전에 동기적으로 로딩 플래그 설정
+  const handleChurchChange = async (newChurch: string) => {
     isLoadingDataRef.current = true;
-    handleSave(false);
+    await handleSave(false); // 현재 데이터 저장 완료 후 전환
     setChurch(newChurch);
   };
 
@@ -5028,7 +5024,9 @@ const renderPreviewLines = () => {
                                   }`}
                                 >
                                   <button
-                                    onClick={() => {
+                                    onClick={async () => {
+                                      isLoadingDataRef.current = true;
+                                      await handleSave(false);
                                       setActiveTab('report'); setParish(p); setChurch(c);
                                     }}
                                     className="text-left px-2.5 py-2 w-full"
