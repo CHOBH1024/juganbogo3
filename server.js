@@ -1,9 +1,10 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ImageRun } from 'docx';
 import { google } from 'googleapis';
 
@@ -605,26 +606,31 @@ app.post('/api/claude-chat', async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
 
-  let output = '';
-  let errorOutput = '';
+  // 임시 파일에 프롬프트 저장 후 stdin 리다이렉트 (특수문자/한글/줄바꿈 안전)
+  const tmpFile = path.join(os.tmpdir(), `claude_prompt_${Date.now()}.txt`);
+  try {
+    fs.writeFileSync(tmpFile, prompt, 'utf8');
+  } catch (e) {
+    return res.status(500).json({ error: '임시 파일 생성 실패' });
+  }
 
-  const child = spawn('claude', ['-p', prompt], { timeout: 120000, shell: true });
+  // Windows: cmd /c "type file | claude --print"
+  // Unix:    sh -c "claude --print < file"
+  const isWin = process.platform === 'win32';
+  const cmd = isWin
+    ? `cmd /c "type "${tmpFile}" | claude --print"`
+    : `claude --print < "${tmpFile}"`;
 
-  child.stdout.on('data', (data) => { output += data.toString(); });
-  child.stderr.on('data', (data) => { errorOutput += data.toString(); });
-
-  child.on('error', (err) => {
-    console.error('[ClaudeCode] spawn error:', err.message);
-    res.status(500).json({ error: `Claude CLI not found: ${err.message}. Run: npm install -g @anthropic-ai/claude-code` });
-  });
-
-  child.on('close', (code) => {
-    if (code !== 0) {
-      console.error('[ClaudeCode] exited with code', code, errorOutput);
-      return res.status(500).json({ error: errorOutput || `Claude exited with code ${code}` });
+  // 프로젝트 컨텍스트 없는 임시 디렉토리에서 실행
+  const cwd = os.tmpdir();
+  exec(cmd, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, cwd }, (err, stdout, stderr) => {
+    try { fs.unlinkSync(tmpFile); } catch {}
+    if (err) {
+      console.error('[ClaudeCode] error:', stderr || err.message);
+      return res.status(500).json({ error: stderr || err.message });
     }
-    console.log('[ClaudeCode] success, output length:', output.length);
-    res.json({ text: output.trim() });
+    console.log('[ClaudeCode] success, length:', stdout.length);
+    res.json({ text: stdout.trim() });
   });
 });
 
