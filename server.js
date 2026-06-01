@@ -611,31 +611,40 @@ app.post('/api/claude-chat', async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
 
-  // 임시 파일에 프롬프트 저장 후 stdin 리다이렉트 (특수문자/한글/줄바꿈 안전)
-  const tmpFile = path.join(os.tmpdir(), `claude_prompt_${Date.now()}.txt`);
-  try {
-    fs.writeFileSync(tmpFile, prompt, 'utf8');
-  } catch (e) {
-    return res.status(500).json({ error: '임시 파일 생성 실패' });
-  }
-
-  // Windows: cmd /c "type file | claude --print"
-  // Unix:    sh -c "claude --print < file"
+  // spawn으로 claude --print 실행, stdin으로 UTF-8 직접 전달 (한글 인코딩 문제 방지)
   const isWin = process.platform === 'win32';
-  // chcp 65001 = UTF-8 코드페이지로 전환 후 실행
-  const cmd = isWin
-    ? `cmd /c "chcp 65001 > nul && type "${tmpFile}" | claude --print"`
-    : `claude --print < "${tmpFile}"`;
+  const claudeArgs = ['--print'];
+  const child = spawn('claude', claudeArgs, {
+    timeout: 120000,
+    env: { ...process.env, ...(isWin ? { PYTHONUTF8: '1' } : {}) }
+  });
 
-  const cwd = os.tmpdir();
-  exec(cmd, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, cwd }, (err, stdout, stderr) => {
-    try { fs.unlinkSync(tmpFile); } catch {}
-    if (err) {
-      console.error('[ClaudeCode] error:', stderr || err.message);
-      return res.status(500).json({ error: stderr || err.message });
+  let output = '';
+  let errorOutput = '';
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { errorOutput += d; });
+
+  // stdin에 UTF-8로 직접 write
+  child.stdin.setDefaultEncoding('utf8');
+  child.stdin.write(prompt, 'utf8');
+  child.stdin.end();
+
+  child.on('error', err => {
+    console.error('[ClaudeCode] spawn error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: `Claude CLI 실행 실패: ${err.message}` });
+  });
+
+  child.on('close', code => {
+    if (code !== 0) {
+      console.error('[ClaudeCode] exit', code, errorOutput.slice(0, 200));
+      if (!res.headersSent) return res.status(500).json({ error: errorOutput || `exit code ${code}` });
+      return;
     }
-    console.log('[ClaudeCode] success, length:', stdout.length);
-    res.json({ text: stdout.trim() });
+    console.log('[ClaudeCode] success, length:', output.length);
+    if (!res.headersSent) res.json({ text: output.trim() });
   });
 });
 
