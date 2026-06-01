@@ -746,8 +746,44 @@ export default function App() {
         setIsLocalMode(false);
       } catch {}
     };
-    autoDetectServer();
+    autoDetectServer().then(() => {
+      // 서버 연결 확인 후 전체 교구 데이터 백그라운드 프리로드
+      preloadAllChurches();
+    });
   }, []);
+
+  const preloadAllChurches = () => {
+    const isLocal = localStorage.getItem('IS_LOCAL_MODE') === 'true';
+    const serverUrl = localStorage.getItem('LOCAL_SERVER_URL') || 'http://localhost:5000';
+    let loaded = 0;
+    const allEntries: { p: string; c: string }[] = [];
+    Object.entries(PARISH_CHURCH_MAP).forEach(([p, cs]) => {
+      (cs as string[]).forEach(c => allEntries.push({ p, c }));
+    });
+
+    allEntries.forEach(({ p, c }) => {
+      const key = `report_${p}_${c}`;
+      if (sessionStorage.getItem(key) || localStorage.getItem(key)) { loaded++; return; }
+
+      const load = isLocal
+        ? fetch(`${serverUrl}/api/load-data/${p}_${c}`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+        : fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`);
+
+      load.then(r => r.ok ? r.json() : null).then(json => {
+        if (!json) return;
+        const payload = isLocal ? json : (json?.found ? json.payload : null);
+        if (payload) {
+          const str = JSON.stringify(payload);
+          localStorage.setItem(key, str);
+          sessionStorage.setItem(key, str);
+        }
+        loaded++;
+        if (loaded === allEntries.length) {
+          console.log(`✅ 전체 ${loaded}개 교회 데이터 프리로드 완료`);
+        }
+      }).catch(() => { loaded++; });
+    });
+  };
 
   const handleNoticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
