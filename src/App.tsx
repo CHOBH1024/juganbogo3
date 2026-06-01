@@ -2756,9 +2756,11 @@ ${reportText}`;
       toast.info('🖥️ AI 검토 중... (약 30초)');
       const cleanData = getCleanData(reportData);
       // 이미지·표 항목은 텍스트 검토 불필요 — 건너뜀
-      const reportText = cleanData.filter(item => !item.image && !item.tableData).map(item => {
-        return `[L${item.level}] ${'  '.repeat(item.level)}${item.text || ''}`.trimEnd();
-      }).filter(l => l.trim()).join('\n');
+      const textItems = cleanData.filter(item => !item.image && !item.tableData && item.text?.trim());
+      // 들여쓰기 제거 — AI가 original에 공백 포함해 반환하면 매칭 실패함
+      const reportText = textItems.map((item, idx) =>
+        `${idx + 1}. [L${item.level}] ${item.text}`
+      ).join('\n');
 
       const prompt = `${AI_FORMAT_RULES}
 
@@ -2781,12 +2783,17 @@ ${reportText}
       const responseText = await callAI(prompt);
       const jsonMatch = responseText?.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
-        const corrections = JSON.parse(jsonMatch[0]);
+        const rawCorrections = JSON.parse(jsonMatch[0]);
+        // ID 기반으로 reportData 내 실제 item.id 매핑 (텍스트 매칭 버그 방지)
+        const corrections = rawCorrections.map((c: any) => {
+          const idx = (c.id ?? 0) - 1; // 1-based → 0-based
+          const targetItem = textItems[idx];
+          return { ...c, _itemId: targetItem?.id ?? null };
+        });
         setAiCorrections(corrections);
         if (corrections.length === 0) {
           toast.success('수정이 필요한 항목이 없습니다! 완벽합니다 🎉');
         } else {
-          // 전부 선택 상태로 모달 열기
           const sel: Record<number, boolean> = {};
           corrections.forEach((_: any, i: number) => { sel[i] = true; });
           setAiReviewSelected(sel);
@@ -6199,9 +6206,11 @@ const renderPreviewLines = () => {
                     let updated = [...prev];
                     selected.forEach(c => {
                       updated = updated.map(item => {
-                        if (item.text === c.original) {
-                          const u: ReportItem = { ...item, text: c.corrected };
-                          if (c.newLevel !== undefined) u.level = c.newLevel;
+                        // _itemId(reportData 내 고유 id) 우선, 없으면 텍스트 매칭
+                        const match = c._itemId != null ? item.id === c._itemId : item.text === c.original;
+                        if (match) {
+                          const u: ReportItem = { ...item, text: stripLeadingNumber(c.corrected) };
+                          if (c.newLevel !== undefined) u.level = Number(c.newLevel);
                           return u;
                         }
                         return item;
