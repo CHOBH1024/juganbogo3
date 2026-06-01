@@ -111,19 +111,21 @@ const saveDbData = async (id: string, payload: any) => {
     return 'error';
   }
 
-  // 클라우드 모드: Supabase 저장 + Google Drive 업로드
+  // 클라우드 모드: Supabase 저장 (주 저장소) + Google Drive 업로드 (부가 동기화)
+  let supabaseOk = false;
   if (supabase) {
     try {
       const jsonString = JSON.stringify(payload);
       await supabase.storage.from('images').upload(`db_reports/${id}.json`, jsonString, { upsert: true, contentType: 'application/json' });
-      removePendingSync(id); // 성공 시 큐에서 제거
+      removePendingSync(id);
+      supabaseOk = true;
     } catch(e) {
       console.error("Storage DB save failed:", e);
       if (!navigator.onLine) enqueuePendingSync(id, payload);
     }
   }
 
-  // Vercel 서버리스 함수로 Drive 업로드 — report_ 접두사 포함해서 전달
+  // Vercel 서버리스 함수로 Drive 업로드 (실패해도 Supabase 저장 성공이면 ok 반환)
   const driveId = id.startsWith('report_') ? id : `report_${id}`;
   try {
     const driveRes = await fetch('/api/save-drive', {
@@ -132,9 +134,12 @@ const saveDbData = async (id: string, payload: any) => {
       body: JSON.stringify({ id: driveId, payload })
     });
     const driveJson = await driveRes.json();
-    return driveJson?.success ? 'ok' : driveJson?.skipped ? 'skipped' : 'error';
+    if (driveJson?.success) return 'ok';
+    if (driveJson?.skipped) return supabaseOk ? 'ok' : 'skipped';
+    // Drive 실패 — Supabase에 저장됐으면 ok로 처리 (Drive는 부가 동기화)
+    return supabaseOk ? 'ok' : 'error';
   } catch {
-    return 'error';
+    return supabaseOk ? 'ok' : 'error';
   }
 };
 
