@@ -2803,23 +2803,35 @@ ${reportText}`;
         setIsCheckingAI(false);
         return;
       }
-      // AI 전 클라이언트 사전 교정 (번호 제거 + 레벨 자동 수정)
-      autoFixBeforeAI();
-      // reportData가 업데이트되기 전이므로 최신 상태로 직접 계산
+      // AI 전 클라이언트 사전 교정 (번호 제거 + 레벨 자동 수정) — 상태 갱신 없이 직접 계산
       const fixedData = reportData.map(item => {
         const cleaned = stripLeadingNumber(item.text || '');
         let level = item.level;
         if (level === 1 && L2_KEYWORDS.test(cleaned)) level = 2;
         return { ...item, text: cleaned, level };
       });
-      toast.info('🖥️ AI 검토 중... (약 30초)');
+      // 화면에도 즉시 반영
+      setReportData(fixedData);
+
+      toast.info('AI 검토 중... (약 30초)');
       const cleanData = getCleanData(fixedData);
       // 이미지·표 항목은 텍스트 검토 불필요 — 건너뜀
       const textItems = cleanData.filter(item => !item.image && !item.tableData && item.text?.trim());
-      // 들여쓰기 제거 — AI가 original에 공백 포함해 반환하면 매칭 실패함
-      const reportText = textItems.map((item, idx) =>
-        `${idx + 1}. [L${item.level}] ${item.text}`
-      ).join('\n');
+
+      // 섹션 구분 헤더 포함 — AI가 전주/금주 맥락을 이해하도록
+      let currentSection = '';
+      const reportLines: string[] = [];
+      let idx = 0;
+      textItems.forEach(item => {
+        if (item.level === 0) {
+          currentSection = item.text;
+          reportLines.push(`\n=== ${item.text} ===`);
+        } else {
+          idx++;
+          reportLines.push(`${idx}. [L${item.level}] ${item.text}`);
+        }
+      });
+      const reportText = reportLines.join('\n').trim();
 
       const prompt = `${AI_FORMAT_RULES}
 
@@ -2844,9 +2856,11 @@ ${reportText}
       if (jsonMatch) {
         const rawCorrections = JSON.parse(jsonMatch[0]);
         // ID 기반으로 reportData 내 실제 item.id 매핑 (텍스트 매칭 버그 방지)
+        // L0 제외한 순번 기반 매핑 (섹션 헤더는 번호 없이 === 표시)
+        const numberedItems = textItems.filter(item => item.level > 0);
         const corrections = rawCorrections.map((c: any) => {
           const idx = (c.id ?? 0) - 1; // 1-based → 0-based
-          const targetItem = textItems[idx];
+          const targetItem = numberedItems[idx];
           return { ...c, _itemId: targetItem?.id ?? null };
         });
         setAiCorrections(corrections);
