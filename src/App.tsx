@@ -1078,6 +1078,7 @@ export default function App() {
 - 과거형이 금주계획에/미래형이 전주보고에 있으면 지적
 - 맞춤법·띄어쓰기·중복표현 교정
 - 숫자 한글→아라비아("이십명"→"20명")
+- 텍스트 앞의 번호 접두사(1. 1) ① 가. (1) 등) 반드시 제거 — UI가 자동으로 번호를 붙이므로 텍스트에 포함하면 중복됨
 
 출력형식(JSON만, 마크다운 없이):
 [{"id":n,"original":"원문그대로","corrected":"교정문","reason":"한줄이유"}]
@@ -2791,10 +2792,15 @@ ${reportText}
     }
   };
 
+  // 번호 접두사 제거: "1. 텍스트" "1) 텍스트" "① 텍스트" "가. 텍스트" "(1) 텍스트" 등
+  const stripLeadingNumber = (text: string) =>
+    text.replace(/^(\s*(\d+[.)]\s*|[①-⑮]\s*|[가-하][.)\s]\s*|\([0-9가-하]\)\s*))+/, '').trim();
+
   const applyAiCorrection = (original: string, corrected: string, newLevel?: number) => {
+    const cleanText = stripLeadingNumber(corrected);
     setReportData(prev => prev.map(item => {
       if (item.text === original) {
-        const updated: ReportItem = { ...item, text: corrected };
+        const updated: ReportItem = { ...item, text: cleanText };
         if (newLevel !== undefined) updated.level = newLevel;
         return updated;
       }
@@ -2811,7 +2817,7 @@ ${reportText}
       aiCorrections.forEach(c => {
         updated = updated.map(item => {
           if (item.text === c.original) {
-            const u: ReportItem = { ...item, text: c.corrected };
+            const u: ReportItem = { ...item, text: stripLeadingNumber(c.corrected) };
             if (c.newLevel !== undefined) u.level = c.newLevel;
             return u;
           }
