@@ -3940,26 +3940,6 @@ const renderPreviewLines = () => {
                 ) : null}
               </h2>
               <div className="flex gap-2 flex-wrap">
-                {activeTab !== 'notice_write' && (
-                  <button
-                    onClick={() => { setSimpleMode(v => !v); if (quickEntryMode) setQuickEntryMode(false); }}
-                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${simpleMode ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'}`}
-                    title="모바일 간편 입력 — 글+사진 카드 방식"
-                  >
-                    <ImageIcon className="w-4 h-4" />
-                    {simpleMode ? '일반 편집기' : '간편 입력'}
-                  </button>
-                )}
-                {activeTab !== 'notice_write' && !simpleMode && (
-                  <button
-                    onClick={() => quickEntryMode ? setQuickEntryMode(false) : enterQuickEntry()}
-                    className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border ${quickEntryMode ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
-                    title="카카오톡 메시지 붙여넣기 입력"
-                  >
-                    <AlignLeft className="w-4 h-4" />
-                    {quickEntryMode ? '편집기 복귀' : '카카오 입력'}
-                  </button>
-                )}
                 {/* 보고서 전체 텍스트 복사 */}
                 {activeTab !== 'notice_write' && (
                   <button
@@ -4191,35 +4171,6 @@ const renderPreviewLines = () => {
 
 
 
-          {/* 줄별 빠른 입력 모드 */}
-          {quickEntryMode && activeTab !== 'notice_write' && (
-            <div className="mb-4 flex flex-col gap-3">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
-                <strong>붙여넣기 입력</strong> — 카카오톡 메시지를 그대로 붙여넣기 하세요! <code className="bg-amber-100 px-1 rounded"># 섹션제목</code>으로 항목 구분, 나머지 줄은 세부 내용으로 들어갑니다. 나중에 AI로 정리 가능합니다.
-              </div>
-              <textarea
-                value={quickEntryText}
-                onChange={e => setQuickEntryText(e.target.value)}
-                className="w-full min-h-[300px] sm:min-h-[400px] border border-slate-300 rounded-lg px-4 py-3 text-base leading-relaxed focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-y"
-                placeholder={`카카오톡 메시지 복사 후 여기에 붙여넣기\n\n예시:\n# 전주 결과보고\n행사 진행 완료\n참석 인원 50명\n\n# 금주 계획\n수요일 모임 준비`}
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={applyQuickEntry}
-                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Check className="w-4 h-4" /> 적용하기
-                </button>
-                <button
-                  onClick={() => setQuickEntryMode(false)}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-lg transition-colors"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* 간편 입력 모드 — 글+사진 카드 방식 */}
           {simpleMode && activeTab !== 'notice_write' && (
@@ -4279,7 +4230,7 @@ const renderPreviewLines = () => {
             </div>
           )}
 
-          <div className={`flex-1 pr-2 space-y-2 pb-4 ${quickEntryMode || simpleMode ? 'hidden' : ''}`}>
+          <div className={`flex-1 pr-2 space-y-2 pb-4 ${simpleMode ? 'hidden' : ''}`}>
             {(() => {
               const editorCounters = [0, 0, 0, 0, 0, 0];
               let currentL0Id: number | null = null;
@@ -4311,16 +4262,9 @@ const renderPreviewLines = () => {
                           <ArrowRight className={`w-4 h-4 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
                         </button>
                         <span className="shrink-0">{toRoman(editorCounters[0])}.</span>
-                        <TextareaAutosize
-                          id={`input-${item.id}`}
-                          value={item.text}
-                          onChange={(e) => updateText(item.id, e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, item.id, index)}
-                          onFocus={() => { lastFocusedItemId.current = item.id; }}
-                          onPaste={(e) => handlePaste(e, item.id)}
-                          className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
-                          placeholder="대항목 제목 입력 (붙여넣기로 표 생성 가능)"
-                        />
+                        <span className="flex-1 font-bold text-lg text-blue-800 select-text cursor-default" title="섹션 제목은 수정할 수 없습니다">
+                          {item.text}
+                        </span>
                         <div className="flex items-center shrink-0 gap-1 opacity-70 hover:opacity-100 transition-opacity bg-white/50 px-1 py-0.5 rounded">
                           <button onClick={() => moveL0Block(index, 'up')} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="위로 이동">
                             <ArrowUp className="w-4 h-4" />
