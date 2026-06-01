@@ -613,10 +613,16 @@ app.post('/api/claude-chat', async (req, res) => {
 
   // spawn으로 claude --print 실행, stdin으로 UTF-8 직접 전달 (한글 인코딩 문제 방지)
   const isWin = process.platform === 'win32';
-  const claudeArgs = ['--print'];
-  const child = spawn('claude', claudeArgs, {
+  // Windows에서 Node 자식 프로세스는 npm global PATH를 못 찾을 수 있어 .cmd 경로 직접 지정
+  const claudeCmd = isWin
+    ? (process.env.APPDATA ? `${process.env.APPDATA}\\npm\\claude.cmd` : 'claude.cmd')
+    : 'claude';
+  // claude-haiku: 빠른 응답 (5~10초), claude-sonnet: 고품질 (20~40초)
+  const claudeArgs = ['--print', '--model', 'claude-haiku-4-5-20251001'];
+  const child = spawn(claudeCmd, claudeArgs, {
     timeout: 120000,
-    env: { ...process.env, ...(isWin ? { PYTHONUTF8: '1' } : {}) }
+    shell: isWin, // .cmd 파일 실행을 위해 Windows에서 shell 필요
+    env: { ...process.env }
   });
 
   let output = '';

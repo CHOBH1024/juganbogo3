@@ -1069,19 +1069,31 @@ export default function App() {
     return (await res.json()).text ?? '';
   };
 
-  const AI_FORMAT_RULES = `주간업무보고서 교정 편집자로서 아래 규칙을 적용해 수정사항을 JSON 배열로만 반환하라(설명 없이).
+  const AI_FORMAT_RULES = `주간업무보고서 교정 편집자. 아래 규칙 적용 후 수정 필요 항목만 JSON 배열로 반환(설명·마크다운 없이).
 
-교정 규칙:
-- 날짜/일자→일시, 참가자/참여자/출석자→참석자, 세부내용→주요내용, 예정사항→향후계획
-- 콜론 뒤 공백 1개 통일 ("일시 :"→"일시: ")
-- L0=대분류제목, L1=행사명, L2=세부정보(일시·장소·인원순), 레벨 오류 시 newLevel 지정
-- 과거형이 금주계획에/미래형이 전주보고에 있으면 지적
-- 맞춤법·띄어쓰기·중복표현 교정
-- 숫자 한글→아라비아("이십명"→"20명")
+[용어 통일]
+날짜/일자→일시, 참가자/참여자/출석자→참석자, 세부내용→주요내용, 예정사항→향후계획
 
-출력형식(JSON만, 마크다운 없이):
-[{"id":n,"original":"원문그대로","corrected":"교정문","reason":"한줄이유"}]
-레벨변경 시 "newLevel":n 추가. 수정없으면 [].`;
+[서식 통일]
+- 콜론 공백: "일시 :" / "일시-" → "일시: " (콜론 뒤 한 칸)
+- 날짜: "6/4" "6.4" "06-04" → "6월 4일"
+- 숫자: 한글 수→아라비아 ("삼십 명"→"30명", "이십오만"→"25만")
+- 서술형→개조식: "~했습니다"→"~함", "~할 예정입니다"→"~예정"
+
+[맞춤법·띄어쓰기]
+- 붙여쓰기 오류 교정 ("참석자수"→"참석자 수", "행사일정"→"행사 일정")
+- 지명·기관명 오타 교정
+
+[구조·레벨]
+- L0=대분류(전주결과/금주계획), L1=행사명/소제목, L2=세부정보(일시→장소→인원→내용 순)
+- 레벨 오류 시 newLevel 지정 (0~5)
+- 사진/대표사진/첨부 항목은 같은 계층 내 최하단 이동 필요 시 newOrder 표시
+- 전주 결과보고 섹션에 미래형("~예정"), 금주 계획에 과거형("~함") 있으면 교정
+- 텍스트 앞 번호 접두사(1. 1) ① 가. (1) 등) 제거 — UI가 자동 번호 부여
+
+출력(JSON만):
+[{"id":n,"original":"원문그대로","corrected":"교정문"}]
+레벨변경: "newLevel":n 추가. 수정없으면 [].`;
 
   const startParishAiReview = async () => {
     if (!isLocalMode) { toast.error('노트북 서버가 연결되어 있지 않습니다.'); return; }
@@ -2741,9 +2753,10 @@ ${reportText}`;
         setIsCheckingAI(false);
         return;
       }
-      toast.info('🖥️ 로컬 Claude로 검토 중... (20~40초)');
+      toast.info('🖥️ AI 검토 중... (약 30초)');
       const cleanData = getCleanData(reportData);
-      const reportText = cleanData.map(item => {
+      // 이미지·표 항목은 텍스트 검토 불필요 — 건너뜀
+      const reportText = cleanData.filter(item => !item.image && !item.tableData).map(item => {
         return `[L${item.level}] ${'  '.repeat(item.level)}${item.text || ''}`.trimEnd();
       }).filter(l => l.trim()).join('\n');
 
@@ -2791,10 +2804,15 @@ ${reportText}
     }
   };
 
+  // 번호 접두사 제거: "1. 텍스트" "1) 텍스트" "① 텍스트" "가. 텍스트" "(1) 텍스트" 등
+  const stripLeadingNumber = (text: string) =>
+    text.replace(/^(\s*(\d+[.)]\s*|[①-⑮]\s*|[가-하][.)\s]\s*|\([0-9가-하]\)\s*))+/, '').trim();
+
   const applyAiCorrection = (original: string, corrected: string, newLevel?: number) => {
+    const cleanText = stripLeadingNumber(corrected);
     setReportData(prev => prev.map(item => {
       if (item.text === original) {
-        const updated: ReportItem = { ...item, text: corrected };
+        const updated: ReportItem = { ...item, text: cleanText };
         if (newLevel !== undefined) updated.level = newLevel;
         return updated;
       }
@@ -2811,7 +2829,7 @@ ${reportText}
       aiCorrections.forEach(c => {
         updated = updated.map(item => {
           if (item.text === c.original) {
-            const u: ReportItem = { ...item, text: c.corrected };
+            const u: ReportItem = { ...item, text: stripLeadingNumber(c.corrected) };
             if (c.newLevel !== undefined) u.level = c.newLevel;
             return u;
           }
@@ -3780,15 +3798,6 @@ const renderPreviewLines = () => {
                 ) : null}
               </h2>
               <div className="flex gap-2 flex-wrap">
-                {activeTab !== 'notice_write' && (
-                  <button
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md font-bold transition-colors shadow-sm border bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    title="인쇄 전용 뷰"
-                  >
-                    <Printer className="w-4 h-4" />
-                  </button>
-                )}
                 {activeTab !== 'notice_write' && (
                   <button
                     onClick={() => { setSimpleMode(v => !v); if (quickEntryMode) setQuickEntryMode(false); }}
@@ -5274,12 +5283,11 @@ const renderPreviewLines = () => {
                       <div key={i} className="px-3 py-2.5 flex items-start gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-[10px] font-bold text-slate-500 mb-0.5">{c.church}</p>
-                          <div className="flex gap-1.5 text-[11px] flex-wrap">
-                            <span className="text-red-600 line-through break-all">{c.original}</span>
-                            <span className="text-slate-400">→</span>
+                          <div className="flex gap-1.5 text-[11px] flex-wrap items-center">
+                            <span className="text-red-500 line-through break-all opacity-70">{c.original}</span>
+                            <span className="text-slate-400 shrink-0">→</span>
                             <span className="text-emerald-700 font-bold break-all">{c.corrected}</span>
                           </div>
-                          {c.reason && <p className="text-[10px] text-purple-500 mt-0.5">{c.reason}</p>}
                         </div>
                         <button
                           onClick={() => {
@@ -6165,11 +6173,11 @@ const renderPreviewLines = () => {
                     {aiReviewSelected[i] && <Check className="w-2.5 h-2.5 text-white" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs space-y-0.5 mb-1">
-                      <div className="text-red-500 line-through break-all leading-relaxed">{c.original}</div>
-                      <div className="text-emerald-700 font-bold break-all leading-relaxed">→ {c.corrected}</div>
+                    <div className="flex flex-wrap gap-1.5 items-center text-xs">
+                      <span className="text-red-500 line-through break-all opacity-70 leading-relaxed">{c.original}</span>
+                      <span className="text-slate-400 shrink-0">→</span>
+                      <span className="text-emerald-700 font-bold break-all leading-relaxed">{c.corrected}</span>
                     </div>
-                    {c.reason && <p className="text-[10px] text-purple-500">{c.reason}</p>}
                   </div>
                 </div>
               ))}
