@@ -1089,15 +1089,20 @@ export default function App() {
 - 지명·기관명 오타 교정
 
 [구조·레벨]
-- L0=대분류(전주결과/금주계획), L1=행사명/소제목, L2=세부정보(일시→장소→인원→내용 순)
-- 레벨 오류 시 newLevel 지정 (0~5)
-- 사진/대표사진/첨부 항목은 같은 계층 내 최하단 이동 필요 시 newOrder 표시
+- L0=대분류 섹션 제목("전주 결과보고", "금주 계획" 등) — L0 항목은 절대 수정하지 말 것
+- L1=행사명/소제목 (예: "(사회공헌) 다문화가정 교육", "심방 활동")
+- L2=세부정보: 일시/장소/대상/인원/추진목적/주요내용/결과/향후계획 등
+  → "일시:", "장소:", "인원:", "목적:", "추진목적:", "참석자:", "선발인원:", "내용:", "결과:" 로 시작하는 항목은 반드시 L2 유지
+- 한 항목에 여러 정보가 섞인 경우(예: "일시: 6월 4일 / 장소: 신한국협회 / 인원: 20명") → split하여 각각 별도 L2 항목으로 분리 (splitInto 배열로 반환)
+- 사진/대표사진/첨부 항목은 같은 계층 내 최하단 이동
 - 전주 결과보고 섹션에 미래형("~예정"), 금주 계획에 과거형("~함") 있으면 교정
 - 텍스트 앞 번호 접두사(1. 1) ① 가. (1) 등) 제거 — UI가 자동 번호 부여
 
 출력(JSON만):
 [{"id":n,"original":"원문그대로","corrected":"교정문"}]
-레벨변경: "newLevel":n 추가. 수정없으면 [].`;
+레벨변경: "newLevel":n 추가.
+한 항목을 여러 줄로 분리할 때: "splitInto":["교정문1","교정문2",...] 추가 (corrected 대신).
+수정없으면 [].`;
 
   const startParishAiReview = async () => {
     if (!isLocalMode) { toast.error('노트북 서버가 연결되어 있지 않습니다.'); return; }
@@ -4532,13 +4537,17 @@ const renderPreviewLines = () => {
                     <button onClick={() => addNewItem(index, item.level)} className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors" title="항목 추가 (Enter)">
                       <Plus className="w-3.5 h-3.5" /> 항목 추가
                     </button>
+                    {item.level > 0 && (
                     <button onClick={() => addEmptyTable(item.id)} className="flex items-center gap-1 px-2 py-1 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-medium cursor-pointer transition-colors" title="표 삽입">
                       <TableIcon className="w-3.5 h-3.5" /> 표 삽입
                     </button>
+                    )}
+                    {item.level > 0 && (
                     <label className="flex items-center gap-1 px-2 py-1 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 text-emerald-700 rounded text-xs font-medium cursor-pointer transition-colors" title="사진 첨부">
                       <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, item.id)} />
                       <ImageIcon className="w-3.5 h-3.5" /> 사진 첨부
                     </label>
+                    )}
                     <button
                       onClick={async () => {
                         try {
@@ -4568,7 +4577,7 @@ const renderPreviewLines = () => {
                           toast.warning('클립보드에 이미지가 없습니다.');
                         } catch { toast.error('Ctrl+V로 붙여넣기 하세요.'); }
                       }}
-                      className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors" title="클립보드 사진 붙여넣기"
+                      className={`flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors ${item.level === 0 ? 'hidden' : ''}`} title="클립보드 사진 붙여넣기"
                     >
                       <Copy className="w-3.5 h-3.5" /> 붙여넣기
                     </button>
@@ -6351,18 +6360,33 @@ const renderPreviewLines = () => {
                   if (selected.length === 0) { toast.warning('선택된 항목이 없습니다.'); return; }
                   setReportData(prev => {
                     let updated = [...prev];
+                    let idCounter = nextId;
                     selected.forEach(c => {
-                      updated = updated.map(item => {
-                        // _itemId(reportData 내 고유 id) 우선, 없으면 텍스트 매칭
-                        const match = c._itemId != null ? item.id === c._itemId : item.text === c.original;
-                        if (match) {
-                          const u: ReportItem = { ...item, text: stripLeadingNumber(c.corrected) };
-                          if (c.newLevel !== undefined) u.level = Number(c.newLevel);
-                          return u;
-                        }
-                        return item;
-                      });
+                      if (c.splitInto?.length > 1) {
+                        // 한 항목을 여러 줄로 분리
+                        updated = updated.flatMap(item => {
+                          const match = c._itemId != null ? item.id === c._itemId : item.text === c.original;
+                          if (!match) return [item];
+                          return c.splitInto.map((txt: string, i: number) => ({
+                            ...item,
+                            id: i === 0 ? item.id : idCounter++,
+                            text: stripLeadingNumber(txt),
+                            level: c.newLevel !== undefined ? Number(c.newLevel) : item.level
+                          }));
+                        });
+                      } else {
+                        updated = updated.map(item => {
+                          const match = c._itemId != null ? item.id === c._itemId : item.text === c.original;
+                          if (match) {
+                            const u: ReportItem = { ...item, text: stripLeadingNumber(c.corrected || c.splitInto?.[0] || item.text) };
+                            if (c.newLevel !== undefined) u.level = Number(c.newLevel);
+                            return u;
+                          }
+                          return item;
+                        });
+                      }
                     });
+                    if (idCounter > nextId) setNextId(idCounter);
                     return updated;
                   });
                   toast.success(`${selected.length}개 수정이 적용되었습니다.`);
