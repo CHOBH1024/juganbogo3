@@ -415,6 +415,7 @@ export default function App() {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
   const isLoadingDataRef = useRef(false);
+  const lastFocusedItemId = useRef<number | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const docUploadRef = useRef<HTMLInputElement>(null);
 
@@ -1660,27 +1661,43 @@ ${reportText}`;
 
   // 전역 스크린샷/이미지 붙여넣기 (포커스가 INPUT/TEXTAREA 밖일 때)
   useEffect(() => {
+    const pasteImageFile = (file: File, targetId?: number | null) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          if (targetId != null) {
+            // 기존 항목에 추가
+            setReportData(prev => prev.map(item => {
+              if (item.id !== targetId) return item;
+              const existing = item.images?.length ? item.images : (item.image ? [item.image] : []);
+              const next = [...existing, dataUrl];
+              return { ...item, image: next[0], imageWidth: img.width, imageHeight: img.height, images: next };
+            }));
+            toast.success('사진이 추가되었습니다.');
+          } else {
+            // 새 항목으로 추가
+            const newId = Date.now();
+            setReportData(prev => [...prev, { id: newId, text: '', level: 1, image: dataUrl, imageWidth: img.width, imageHeight: img.height, images: [dataUrl], chartType: 'none' as const }]);
+            setNextId(newId + 1);
+            toast.success('사진이 새 항목으로 추가되었습니다.');
+          }
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    };
+
     const onGlobalPaste = (e: ClipboardEvent) => {
-      const active = document.activeElement;
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
       const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
       const imageItem = items.find(i => i.type.startsWith('image/'));
       if (!imageItem) return;
       e.preventDefault();
       const file = imageItem.getAsFile();
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          const newId = Date.now();
-          setReportData(prev => [...prev, { id: newId, text: '(붙여넣기 이미지)', level: 1, image: dataUrl, imageWidth: img.width, imageHeight: img.height, chartType: 'none' as const }]);
-          setNextId(newId + 1);
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
+      // 마지막으로 포커스된 항목에 추가, 없으면 새 항목
+      pasteImageFile(file, lastFocusedItemId.current);
     };
     document.addEventListener('paste', onGlobalPaste);
     return () => document.removeEventListener('paste', onGlobalPaste);
@@ -1896,9 +1913,12 @@ ${reportText}`;
           if (origKB > newKB + 50) toast.info(`이미지 압축: ${origKB}KB → ${newKB}KB`);
           const img = new Image();
           img.onload = () => {
-            setReportData(data => data.map(item => item.id === id ? {
-              ...item, image: dataUrl, imageWidth: img.naturalWidth, imageHeight: img.naturalHeight
-            } : item));
+            setReportData(data => data.map(item => {
+              if (item.id !== id) return item;
+              const existing = item.images?.length ? item.images : (item.image ? [item.image] : []);
+              const next = [...existing, dataUrl];
+              return { ...item, image: next[0], imageWidth: img.naturalWidth, imageHeight: img.naturalHeight, images: next };
+            }));
           };
           img.src = dataUrl;
         };
@@ -4216,6 +4236,7 @@ const renderPreviewLines = () => {
                           value={item.text}
                           onChange={(e) => updateText(item.id, e.target.value)}
                           onKeyDown={(e) => handleKeyDown(e, item.id, index)}
+                          onFocus={() => { lastFocusedItemId.current = item.id; }}
                           onPaste={(e) => handlePaste(e, item.id)}
                           className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
                           placeholder="대항목 제목 입력 (붙여넣기로 표 생성 가능)"
@@ -4478,6 +4499,7 @@ const renderPreviewLines = () => {
                         id={`input-${item.id}`}
                         value={item.text}
                         onChange={(e) => updateText(item.id, e.target.value)}
+                        onFocus={() => { lastFocusedItemId.current = item.id; }}
                         onKeyDown={(e) => handleKeyDown(e, item.id, index)}
                         onPaste={(e) => handlePaste(e, item.id)}
                         placeholder="항목 내용을 입력하세요"
