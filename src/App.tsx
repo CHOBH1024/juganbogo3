@@ -311,6 +311,22 @@ export default function App() {
   const [role, setRole] = useState<Role>(null);
   const [isLocalMode, setIsLocalMode] = useState(() => localStorage.getItem('IS_LOCAL_MODE') === 'true');
 
+  // URL 파라미터로 로컬 서버 자동 설정 (?server=http://xxx)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const serverParam = params.get('server');
+    if (serverParam) {
+      const url = serverParam.replace(/\/$/, '');
+      localStorage.setItem('LOCAL_SERVER_URL', url);
+      localStorage.setItem('IS_LOCAL_MODE', 'true');
+      setIsLocalMode(true);
+      // URL 파라미터 제거 후 클린 URL로 교체
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+      toast.success(`🔗 로컬 서버 연결됨: ${url}`);
+    }
+  }, []);
+
   // 로컬 서버 자동 감지 (마운트 시 ping — 실패 시 isLocalMode 리셋)
   useEffect(() => {
     const detect = async () => {
