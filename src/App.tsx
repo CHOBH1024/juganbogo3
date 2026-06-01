@@ -1,9 +1,9 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Check, Save, Download, Bot, Clock, AlertCircle, RefreshCw, Image as ImageIcon, Crop as CropIcon, Table as TableIcon, BarChart2, Trash2, Highlighter, BookOpen, AlignLeft, AlignCenter, AlignRight, Settings, Key, Bell, Upload, FileText, Sparkles, Folder, User, CheckCircle, Info, AlertTriangle, Printer, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GoogleGenAI, Type } from '@google/genai';
+// GoogleGenAI: 현재 미사용 (AI 검토는 Claude CLI 경유)
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
@@ -15,7 +15,7 @@ import RoleSelection, { Role } from './RoleSelection';
 const getLocalServerUrl = () => {
   const customUrl = localStorage.getItem('LOCAL_SERVER_URL');
   if (customUrl) return customUrl;
-  return 'http://localhost:5000';
+  return `http://${window.location.hostname}:5000`;
 };
 
 // ngrok 터널 경유 시 브라우저 경고창 우회 헤더 자동 추가
@@ -99,15 +99,16 @@ const saveDbData = async (id: string, payload: any) => {
   if (isLocal) {
     try {
       const serverUrl = getLocalServerUrl();
-      await localFetch(`${serverUrl}/api/save-data`, {
+      const res = await localFetch(`${serverUrl}/api/save-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, payload })
       });
+      if (res.ok) return 'ok';
     } catch (e) {
       console.error("Local DB save failed:", e);
     }
-    return;
+    return 'error';
   }
 
   // 클라우드 모드: Supabase 저장 + Google Drive 업로드
@@ -648,7 +649,7 @@ export default function App() {
       { id: 20, text: '간편 입력 — 글+사진 카드 방식 (모바일 최적)', level: 1 },
       { id: 21, text: '카카오 입력 — 카카오톡 메시지를 그대로 붙여넣기. # 기호로 섹션 구분', level: 1 },
       { id: 22, text: '일반 편집기 — L0/L1/L2 계층을 직접 편집, 표/이미지 첨부 가능', level: 1 },
-      { id: 23, text: 'AI 검토 — 서식·맞춤법·계층 오류를 자동 교정 후 선택 적용', level: 1 },
+
     ] as any[],
   };
 
@@ -1004,22 +1005,25 @@ export default function App() {
       loadAllReportsStatus();
       checkDriveStatus();
       // 관리자 콘솔 진입 시 전 교구·전 교회 데이터를 백그라운드로 미리 캐시
-      Object.entries(PARISH_CHURCH_MAP).forEach(([p, churches]) => {
-        (churches as string[]).forEach((c: string) => {
-          const key = `report_${p}_${c}`;
-          if (sessionStorage.getItem(key) || localStorage.getItem(key)) return;
-          fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`)
-            .then(r => r.ok ? r.json() : null)
-            .then(json => {
-              if (json?.found && json?.payload) {
-                const str = JSON.stringify(json.payload);
-                localStorage.setItem(key, str);
-                sessionStorage.setItem(key, str);
-              }
-            })
-            .catch(() => {});
+      // 로컬 모드에서는 로컬 서버 API를 사용하므로 Vercel 전용 프리로드 건너뜀
+      if (!isLocalMode) {
+        Object.entries(PARISH_CHURCH_MAP).forEach(([p, churches]) => {
+          (churches as string[]).forEach((c: string) => {
+            const key = `report_${p}_${c}`;
+            if (sessionStorage.getItem(key) || localStorage.getItem(key)) return;
+            fetch(`/api/load-report?parish=${encodeURIComponent(p)}&church=${encodeURIComponent(c)}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(json => {
+                if (json?.found && json?.payload) {
+                  const str = JSON.stringify(json.payload);
+                  localStorage.setItem(key, str);
+                  sessionStorage.setItem(key, str);
+                }
+              })
+              .catch(() => {});
+          });
         });
-      });
+      }
     }
   }, [activeTab, parish, church, status, reportData]);
 
@@ -2344,30 +2348,30 @@ ${reportText}`;
     setLastSaved(timestamp);
     setStatus(newStatus);
 
-    // 저장/제출 모두 클라우드 업로드
-    if (supabase) {
-      try {
-        setDriveSaveResult('saving');
-        const result = await saveDbData(`${parish}_${church}`, {
-          id: `${parish}_${church}`,
-          parish,
-          church,
-          ...saveData,
-          updated_at: new Date().toISOString()
-        });
-        setDriveSaveResult(result as any || null);
-        if (result === 'ok') {
-          setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-          if (isSubmit) { toast.success('✅ 제출이 완료되었습니다!'); setShowSubmitCelebration(true); setTimeout(() => setShowSubmitCelebration(false), 4000); }
-          else toast.success('☁️ 저장되었습니다.');
-        } else if (result === 'skipped') {
-          toast.info('로컬 저장 완료 (Drive 연동 대기 중)');
-        }
-      } catch (e) {
-        console.error("Manual save failed", e);
-        setDriveSaveResult('error');
-        toast.error('저장 중 오류가 발생했습니다.');
+    // 서버(로컬/클라우드)로 저장
+    try {
+      setDriveSaveResult('saving');
+      const result = await saveDbData(`${parish}_${church}`, {
+        id: `${parish}_${church}`,
+        parish,
+        church,
+        ...saveData,
+        updated_at: new Date().toISOString()
+      });
+      setDriveSaveResult(result as any || null);
+      if (result === 'ok') {
+        setDriveSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        if (isSubmit) { toast.success('✅ 제출이 완료되었습니다!'); setShowSubmitCelebration(true); setTimeout(() => setShowSubmitCelebration(false), 4000); }
+        else toast.success('✅ 저장 완료');
+      } else if (result === 'skipped') {
+        toast.info('로컬 저장 완료 (Drive 연동 대기 중)');
+      } else {
+        toast.warning('로컬 저장 완료 (클라우드 동기화 실패)');
       }
+    } catch (e) {
+      console.error("Manual save failed", e);
+      setDriveSaveResult('error');
+      toast.error('저장 중 오류가 발생했습니다.');
     }
     setTimeout(() => setIsSaving(false), 600);
   };
@@ -2423,6 +2427,47 @@ ${reportText}`;
 
     const newReportData = blocks.flat();
     setReportData(newReportData);
+  };
+
+  const moveL1Block = (index: number, direction: 'up' | 'down') => {
+    const targetItem = reportData[index];
+    if (targetItem.level !== 1) return;
+
+    let endIndex = index + 1;
+    while (endIndex < reportData.length && reportData[endIndex].level > 1) {
+      endIndex++;
+    }
+
+    if (direction === 'up') {
+      let prevIndex = index - 1;
+      while (prevIndex >= 0 && reportData[prevIndex].level > 1) {
+        prevIndex--;
+      }
+      if (prevIndex < 0 || reportData[prevIndex].level === 0) return;
+      
+      setReportData(data => {
+        const newData = [...data];
+        const prevBlock = newData.slice(prevIndex, index);
+        const currentBlock = newData.slice(index, endIndex);
+        newData.splice(prevIndex, endIndex - prevIndex, ...currentBlock, ...prevBlock);
+        return newData;
+      });
+    } else {
+      if (endIndex >= reportData.length || reportData[endIndex].level === 0) return;
+      
+      let nextEndIndex = endIndex + 1;
+      while (nextEndIndex < reportData.length && reportData[nextEndIndex].level > 1) {
+        nextEndIndex++;
+      }
+
+      setReportData(data => {
+        const newData = [...data];
+        const currentBlock = newData.slice(index, endIndex);
+        const nextBlock = newData.slice(endIndex, nextEndIndex);
+        newData.splice(index, nextEndIndex - index, ...nextBlock, ...currentBlock);
+        return newData;
+      });
+    }
   };
 
   // L0 드래그앤드롭으로 블록 재배치
@@ -4394,6 +4439,16 @@ const renderPreviewLines = () => {
                     <button onClick={() => changeLevel(item.id, 1)} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition-colors" title="하위 수준 (Tab)">
                       <ArrowRight className="w-3.5 h-3.5" /> 들여쓰기
                     </button>
+                    {item.level === 1 && (
+                      <>
+                        <button onClick={() => moveL1Block(index, 'up')} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition-colors" title="위로 이동">
+                          <ArrowUp className="w-3.5 h-3.5" /> 위로 이동
+                        </button>
+                        <button onClick={() => moveL1Block(index, 'down')} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-medium transition-colors" title="아래로 이동">
+                          <ArrowDown className="w-3.5 h-3.5" /> 아래로 이동
+                        </button>
+                      </>
+                    )}
                     <button onClick={() => addNewItem(index, item.level)} className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors" title="항목 추가 (Enter)">
                       <Plus className="w-3.5 h-3.5" /> 항목 추가
                     </button>
@@ -4711,10 +4766,10 @@ const renderPreviewLines = () => {
                 </span>
                 {driveSaveResult && (
                   <span className={`text-[11px] font-semibold flex items-center gap-1 ${driveSaveResult === 'ok' ? 'text-emerald-600' : driveSaveResult === 'saving' ? 'text-blue-500' : driveSaveResult === 'skipped' ? 'text-slate-400' : 'text-red-500'}`}>
-                    {driveSaveResult === 'ok' && `☁️ 구글 드라이브 저장 완료${driveSavedAt ? ` · ${driveSavedAt}` : ''}`}
-                    {driveSaveResult === 'saving' && '☁️ 드라이브 저장 중...'}
+                    {driveSaveResult === 'ok' && `✅ 저장 완료${driveSavedAt ? ` · ${driveSavedAt}` : ''}`}
+                    {driveSaveResult === 'saving' && '💾 저장 중...'}
                     {driveSaveResult === 'skipped' && '⚠️ 드라이브 미연결 — /api/google-auth 에서 인증 필요'}
-                    {driveSaveResult === 'error' && '⚠️ 드라이브 저장 실패 — 관리자 문의'}
+                    {driveSaveResult === 'error' && '⚠️ 저장 실패 — 서버 연결을 확인하세요'}
                   </span>
                 )}
               </div>

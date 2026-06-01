@@ -4,7 +4,6 @@ import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, Width
 
 // App.tsx의 PARISH_CHURCH_MAP과 동일 — 교구별 교회 순서 기준
 const PARISH_CHURCH_MAP = {
-  "협회": ["기획국", "미래인재국", "가정행복국", "총무국", "문화홍보국", "사회공헌국", "대외협력국"],
   "천원특별": ["교구본부", "천원궁 천원", "가평", "청평", "북면가정", "조종가정", "상면가정"],
   "서울북부": ["교구본부", "천원궁 천승", "천승(1구역)", "천승(2구역)", "천승(3구역)", "광진", "노원", "동대문", "성북", "안암학사", "신촌학사", "한양학사", "은평", "서대문", "중구", "종로", "중랑", "강북", "장안", "도봉", "청파", "광화문학사", "HJ글로벌"],
   "서울남부": ["교구본부", "강남", "영등포", "강동", "양천", "강서", "관악", "구로", "금천", "명일", "송파", "흑석동작"],
@@ -31,18 +30,8 @@ function toCircled(num) {
   const c = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮'];
   return c[num - 1] || `(${num})`;
 }
-function isHyeohoe(parish) {
-  return parish === '협회' || parish === '협회본부';
-}
 function getDisplayParish(parish) {
-  if (isHyeohoe(parish)) return '협회본부';
   return parish.endsWith('교구') ? parish : `${parish}교구`;
-}
-function getDisplayChurch(church) {
-  if (church === '교구본부' || church.endsWith('국')) return church;
-  if (church.endsWith('교회') || church.endsWith('학사') || church.endsWith('센터') ||
-      church.endsWith('대학') || church.endsWith('전도소') || church.endsWith('글로벌')) return church;
-  return `${church}교회`;
 }
 // 교회명 → 파일 키: 공백과 괄호를 _로 치환
 function toKey(church) {
@@ -282,35 +271,21 @@ export default async function handler(req, res) {
   try {
     const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID || await getOrCreateFolder(drive, '주간보고_제출현황', null);
 
-    if (isHyeohoe(parish)) {
-      // 협회: 국별 독립 폴더 + 단독 Word
-      const hyeohoeId = await getOrCreateFolder(drive, '협회본부', rootId);
-      const gukId = await getOrCreateFolder(drive, church, hyeohoeId);
+    // 교구: 교회별 JSON 저장 + 교구 단일 통합 Word 재생성
+    const parishDisplay = getDisplayParish(parish);
+    const parishFolderId = await getOrCreateFolder(drive, parishDisplay, rootId);
 
-      await uploadOrUpdate(drive, `${cleanChurch}_data.json`, Buffer.from(JSON.stringify(payload), 'utf-8'), 'application/json', gukId);
+    // 교회 JSON 실시간 저장 (저장/제출 모두)
+    await uploadOrUpdate(drive, `${cleanChurch}_data.json`, Buffer.from(JSON.stringify(payload), 'utf-8'), 'application/json', parishFolderId);
 
-      if (payload?.status === 'submitted') {
-        const wordBuffer = await buildGukWordBuffer(church, payload);
-        const filename = `협회본부_${cleanChurch}_주간보고_${new Date().toISOString().slice(0,10)}.docx`;
-        await uploadOrUpdate(drive, filename, wordBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', gukId);
-      }
-    } else {
-      // 교구: 교회별 JSON 저장 + 교구 단일 통합 Word 재생성
-      const parishDisplay = getDisplayParish(parish);
-      const parishFolderId = await getOrCreateFolder(drive, parishDisplay, rootId);
+    // 제출 시: 교구 전체 교회 데이터로 통합 Word 재생성
+    if (payload?.status === 'submitted') {
+      const submissions = await loadParishSubmissions(drive, parishFolderId);
+      submissions[cleanChurch] = payload; // 방금 제출분 즉시 반영
 
-      // 교회 JSON 실시간 저장 (저장/제출 모두)
-      await uploadOrUpdate(drive, `${cleanChurch}_data.json`, Buffer.from(JSON.stringify(payload), 'utf-8'), 'application/json', parishFolderId);
-
-      // 제출 시: 교구 전체 교회 데이터로 통합 Word 재생성
-      if (payload?.status === 'submitted') {
-        const submissions = await loadParishSubmissions(drive, parishFolderId);
-        submissions[cleanChurch] = payload; // 방금 제출분 즉시 반영
-
-        const wordBuffer = await buildParishWordBuffer(parish, submissions);
-        const filename = `${parishDisplay}_주간보고_${new Date().toISOString().slice(0,10)}.docx`;
-        await uploadOrUpdate(drive, filename, wordBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', parishFolderId);
-      }
+      const wordBuffer = await buildParishWordBuffer(parish, submissions);
+      const filename = `${parishDisplay}_주간보고_${new Date().toISOString().slice(0,10)}.docx`;
+      await uploadOrUpdate(drive, filename, wordBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', parishFolderId);
     }
 
     res.json({ success: true });
