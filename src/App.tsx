@@ -4262,9 +4262,16 @@ const renderPreviewLines = () => {
                           <ArrowRight className={`w-4 h-4 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
                         </button>
                         <span className="shrink-0">{toRoman(editorCounters[0])}.</span>
-                        <span className="flex-1 font-bold text-lg text-blue-800 select-text cursor-default" title="섹션 제목은 수정할 수 없습니다">
-                          {item.text}
-                        </span>
+                        <TextareaAutosize
+                          id={`input-${item.id}`}
+                          value={item.text}
+                          onChange={(e) => updateText(item.id, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, item.id, index)}
+                          onFocus={() => { lastFocusedItemId.current = item.id; }}
+                          onPaste={(e) => handlePaste(e, item.id)}
+                          className="bg-transparent border-none outline-none focus:ring-0 flex-1 font-bold text-lg text-blue-800 p-0 m-0 w-full placeholder-blue-300 resize-none"
+                          placeholder="섹션 제목 입력"
+                        />
                         <div className="flex items-center shrink-0 gap-1 opacity-70 hover:opacity-100 transition-opacity bg-white/50 px-1 py-0.5 rounded">
                           <button onClick={() => moveL0Block(index, 'up')} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded" title="위로 이동">
                             <ArrowUp className="w-4 h-4" />
