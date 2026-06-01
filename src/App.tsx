@@ -3,7 +3,7 @@ import { Plus, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileJson, Copy, Che
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-// GoogleGenAI: 현재 미사용 (AI 검토는 Claude CLI 경유)
+
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalAlign } from "docx";
 import TextareaAutosize from 'react-textarea-autosize';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
@@ -649,7 +649,7 @@ export default function App() {
       { id: 20, text: '간편 입력 — 글+사진 카드 방식 (모바일 최적)', level: 1 },
       { id: 21, text: '카카오 입력 — 카카오톡 메시지를 그대로 붙여넣기. # 기호로 섹션 구분', level: 1 },
       { id: 22, text: '일반 편집기 — L0/L1/L2 계층을 직접 편집, 표/이미지 첨부 가능', level: 1 },
-
+      { id: 23, text: 'AI 검토 — 서식·맞춤법·계층 오류를 자동 교정 후 선택 적용', level: 1 },
     ] as any[],
   };
 
@@ -2736,7 +2736,7 @@ ${reportText}`;
         setIsCheckingAI(false);
         return;
       }
-      toast.info('🖥️ 로컬 Claude로 검토 중... (20~40초)', { autoClose: 3000 });
+      toast.info('🖥️ 로컬 Claude로 검토 중... (20~40초)');
       const cleanData = getCleanData(reportData);
       const reportText = cleanData.map(item => {
         return `[L${item.level}] ${'  '.repeat(item.level)}${item.text || ''}`.trimEnd();
@@ -3575,7 +3575,7 @@ const renderPreviewLines = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredNotices.map((notice: any) => {
                 const firstImage = notice.data?.find((i: any) => i.image)?.image;
-                const excerpt = notice.data?.filter((i: any) => i.text?.trim()).map((i: any) => i.text).join(' ').slice(0, 120) || '';
+                const excerpt = notice.data?.filter((i: any) => i.text?.trim() && (role === 'manager' || !i.text.includes('AI 검토 — 서식·맞춤법·계층 오류를 자동 교정 후 선택 적용'))).map((i: any) => i.text).join(' ').slice(0, 120) || '';
                 const catColor: Record<string, string> = { '공지': 'bg-blue-100 text-blue-700', '행사': 'bg-emerald-100 text-emerald-700', '긴급': 'bg-red-100 text-red-700', '안내': 'bg-amber-100 text-amber-700' };
                 const cat = notice.category || '공지';
                 const isUnread = !readNoticeIds.has(notice.id);
@@ -3678,7 +3678,9 @@ const renderPreviewLines = () => {
                 {/* Rich content */}
                 {activeNotice.data && activeNotice.data.length > 0 && (
                   <div className="prose max-w-none">
-                    {activeNotice.data.map((item: any) => (
+                    {activeNotice.data
+                      .filter((item: any) => role === 'manager' || !item.text?.includes('AI 검토 — 서식·맞춤법·계층 오류를 자동 교정 후 선택 적용'))
+                      .map((item: any) => (
                       <div key={item.id} className="mb-4">
                         {item.level === 0 ? (
                           <h2 className="text-xl font-black text-slate-800 mt-10 mb-3 pb-2 border-b border-slate-200">{item.text}</h2>
