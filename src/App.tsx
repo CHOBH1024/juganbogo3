@@ -152,6 +152,8 @@ interface ReportItem {
   image?: string;
   imageWidth?: number;
   imageHeight?: number;
+  images?: string[];          // 다중 사진 (이미지 그리드용)
+  imageColumns?: 1 | 2 | 3;  // 그리드 열 수
   tableData?: string[][];
   tableHighlights?: boolean[][];
   tableSpans?: any[][];
@@ -408,6 +410,7 @@ export default function App() {
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string>('');
   const [cropItemId, setCropItemId] = useState<number | null>(null);
+  const [cropAddMode, setCropAddMode] = useState(false); // true=이미지 추가, false=이미지 교체
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
@@ -1409,38 +1412,39 @@ ${reportText}`;
               tempChildren.push(docTable);
             }
 
-            if (item.image && item.imageWidth && item.imageHeight) {
+            const wordImgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
+            if (wordImgs.length > 0) {
               try {
-                let imageBuffer: ArrayBuffer;
-                if (item.image.startsWith("http")) {
-                  const res = await fetch(item.image);
-                  imageBuffer = await res.arrayBuffer();
-                } else {
-                  const base64Data = item.image.split(",")[1];
-                  imageBuffer = Uint8Array.from(atob(base64Data), char => char.charCodeAt(0)).buffer;
-                }
-                
-                const targetWidth = 500;
-                const ratio = Math.min(1, targetWidth / item.imageWidth);
-                const finalWidth = item.imageWidth * ratio;
-                const finalHeight = item.imageHeight * ratio;
-
-                tempChildren.push(new Paragraph({
-                  children: [
-                    new ImageRun({
-                      data: imageBuffer,
-                      transformation: {
-                        width: finalWidth,
-                        height: finalHeight
-                      },
-                      type: "png"
-                    })
-                  ],
-                  indent: {
-                    left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360))
-                  },
-                  spacing: { before: 120 }
+                const cols = item.imageColumns || 1;
+                const perWidth = Math.floor(500 / cols);
+                const buffers = await Promise.all(wordImgs.map(async src => {
+                  if (src.startsWith("http")) { const r = await fetch(src); return r.arrayBuffer(); }
+                  const b64 = src.split(",")[1];
+                  return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
                 }));
+
+                if (cols === 1) {
+                  // 단일 이미지 — 기존 방식
+                  const imgBuf = buffers[0];
+                  const w = item.imageWidth || 400, h = item.imageHeight || 300;
+                  const ratio = Math.min(1, 500 / w);
+                  tempChildren.push(new Paragraph({
+                    children: [new ImageRun({ data: imgBuf, transformation: { width: w * ratio, height: h * ratio }, type: "png" })],
+                    indent: { left: Math.max(0, (item.level === 0 ? 0 : (item.level - 1) * 360)) },
+                    spacing: { before: 120 }
+                  }));
+                } else {
+                  // 다중 이미지 — 1행 N열 테이블
+                  const imgCells = buffers.map(buf => new TableCell({
+                    children: [new Paragraph({ children: [new ImageRun({ data: buf, transformation: { width: perWidth, height: Math.round(perWidth * 0.75) }, type: "png" })] })],
+                    width: { size: Math.floor(9000 / cols), type: WidthType.DXA },
+                    borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+                  }));
+                  // 남은 셀 채우기
+                  while (imgCells.length < cols) imgCells.push(new TableCell({ children: [new Paragraph({ children: [] })], borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } } }));
+                  tempChildren.push(new Table({ rows: [new TableRow({ children: imgCells })], width: { size: 9000, type: WidthType.DXA } }));
+                  tempChildren.push(new Paragraph({ children: [] }));
+                }
               } catch (e) {
                 console.error("[Word] Failed to embed image:", e);
               }
@@ -1696,7 +1700,7 @@ ${reportText}`;
     localStorage.setItem(key, JSON.stringify(saveData));
   }, [reportData, parish, church, status, lastSaved, activeTab]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, id: number, addMode = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1704,6 +1708,7 @@ ${reportText}`;
     reader.onload = (event) => {
       setCropImageSrc(event.target?.result as string);
       setCropItemId(id);
+      setCropAddMode(addMode);
       setCrop(undefined);
       setCompletedCrop(undefined);
       setCropModalOpen(true);
@@ -1783,13 +1788,15 @@ ${reportText}`;
     const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
     setCropModalOpen(false);
 
-    // Optimistic update
-    setReportData(data => data.map(item => item.id === cropItemId ? { 
-      ...item, 
-      image: dataUrl,
-      imageWidth: finalWidth,
-      imageHeight: finalHeight
-    } : item));
+    // Optimistic update — addMode: images[] 배열에 추가, 아니면 교체
+    setReportData(data => data.map(item => {
+      if (item.id !== cropItemId) return item;
+      if (cropAddMode) {
+        const existingImages = item.images?.length ? item.images : (item.image ? [item.image] : []);
+        return { ...item, images: [...existingImages, dataUrl], imageColumns: item.imageColumns || 2 };
+      }
+      return { ...item, image: dataUrl, imageWidth: finalWidth, imageHeight: finalHeight, images: [dataUrl] };
+    }));
 
     // Upload to local storage or Supabase
     canvas.toBlob(async (blob) => {
@@ -1811,10 +1818,14 @@ ${reportText}`;
           
           if (res.ok) {
             const uploadData = await res.json();
-            setReportData(data => data.map(item => item.id === cropItemId ? { 
-              ...item, 
-              image: uploadData.url
-            } : item));
+            setReportData(data => data.map(item => {
+              if (item.id !== cropItemId) return item;
+              if (cropAddMode) {
+                const prev = item.images?.length ? item.images : (item.image ? [item.image] : []);
+                return { ...item, images: [...prev, uploadData.url], imageColumns: item.imageColumns || 2 };
+              }
+              return { ...item, image: uploadData.url, images: [uploadData.url] };
+            }));
           } else {
             console.error("Local image upload API failed");
           }
@@ -1836,10 +1847,14 @@ ${reportText}`;
             .from('images')
             .getPublicUrl(filePath);
             
-          setReportData(data => data.map(item => item.id === cropItemId ? { 
-            ...item, 
-            image: publicUrl
-          } : item));
+          setReportData(data => data.map(item => {
+            if (item.id !== cropItemId) return item;
+            if (cropAddMode) {
+              const prev = item.images?.length ? item.images : (item.image ? [item.image] : []);
+              return { ...item, images: [...prev, publicUrl], imageColumns: item.imageColumns || 2 };
+            }
+            return { ...item, image: publicUrl, images: [publicUrl] };
+          }));
         } else {
           console.error("Image upload failed", error);
         }
@@ -1847,10 +1862,20 @@ ${reportText}`;
     }, 'image/jpeg', 0.8);
   };
 
+  const removeImageFromGrid = (id: number, idx: number) => {
+    setReportData(data => data.map(item => {
+      if (item.id !== id) return item;
+      const imgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
+      const next = imgs.filter((_, i) => i !== idx);
+      if (next.length === 0) { const { image, imageWidth, imageHeight, images, imageColumns, ...rest } = item; return rest; }
+      return { ...item, image: next[0], images: next };
+    }));
+  };
+
   const removeImage = (id: number) => {
     setReportData(data => data.map(item => {
       if (item.id === id) {
-        const { image, imageWidth, imageHeight, ...rest } = item;
+        const { image, imageWidth, imageHeight, images, imageColumns, ...rest } = item;
         return rest;
       }
       return item;
@@ -3136,11 +3161,21 @@ const renderPreviewLines = () => {
       return (
         <div key={item.id} className={`leading-snug mb-0.5 ${colorClass}`}>
           <div className="whitespace-pre-line">{prefix}{item.text || ''}</div>
-          {item.image && (
-            <div className={`mt-2 ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
-              <img src={item.image} alt="첨부됨" className="max-w-full max-h-[400px] object-contain inline-block rounded border border-slate-200 shadow-sm" />
-            </div>
-          )}
+          {(() => {
+            const imgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
+            if (imgs.length === 0) return null;
+            const cols = item.imageColumns || 1;
+            const ml = item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12';
+            return (
+              <div className={`mt-2 ${ml}`}>
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+                  {imgs.map((src, i) => (
+                    <img key={i} src={src} alt={`사진${i + 1}`} className="w-full object-contain rounded border border-slate-200 shadow-sm max-h-[300px]" />
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {item.tableData && item.tableData.length > 0 && (
             <div className={`mt-3 mb-2 overflow-x-auto ${item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12'}`}>
               {item.chartType !== 'none' && item.chartType ? (
@@ -4486,20 +4521,42 @@ const renderPreviewLines = () => {
                       <X className="w-3.5 h-3.5" /> 삭제
                     </button>
                   </div>
-                  {item.image && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <div style={{ width: `${(item.level - 1) * 20 + 4}px` }} className="shrink-0" />
-                      <div className="relative inline-block group/img">
-                        <img src={item.image} alt="첨부" className="h-24 object-contain rounded border border-slate-200" />
-                        <button 
-                          onClick={() => removeImage(item.id)}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover/img:opacity-100 transition-opacity shadow"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                  {(() => {
+                    const imgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
+                    if (imgs.length === 0) return null;
+                    const cols = item.imageColumns || 1;
+                    return (
+                      <div className="mt-2" style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}>
+                        {/* 열 수 선택 */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-[10px] text-slate-400 font-bold">사진 배열:</span>
+                          {([1, 2, 3] as const).map(n => (
+                            <button key={n} onClick={() => setReportData(d => d.map(it => it.id === item.id ? { ...it, imageColumns: n } : it))}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${cols === n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'}`}>
+                              {n}열
+                            </button>
+                          ))}
+                          <label className="ml-1 flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded text-[10px] font-bold cursor-pointer hover:bg-emerald-100 transition-colors">
+                            <Plus className="w-3 h-3" /> 사진 추가
+                            <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, item.id, true)} />
+                          </label>
+                        </div>
+                        {/* 이미지 그리드 */}
+                        <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+                          {imgs.map((src, imgIdx) => (
+                            <div key={imgIdx} className="relative group/img border border-slate-200 rounded overflow-hidden bg-slate-50">
+                              <img src={src} alt={`사진${imgIdx + 1}`} className="w-full object-contain max-h-32" />
+                              <button onClick={() => removeImageFromGrid(item.id, imgIdx)}
+                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/img:opacity-100 transition-opacity shadow">
+                                <X className="w-3 h-3" />
+                              </button>
+                              <span className="absolute bottom-1 left-1 bg-black/40 text-white text-[9px] px-1 rounded">{imgIdx + 1}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {item.tableData && (
                     <div className="mt-2 text-slate-700" style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}>
                       <div className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
