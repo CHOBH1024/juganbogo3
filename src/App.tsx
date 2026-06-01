@@ -339,7 +339,7 @@ export default function App() {
   useEffect(() => {
     const detect = async () => {
       try {
-        const res = await localFetch(`${getLocalServerUrl()}/api/ping`, { signal: AbortSignal.timeout(2000) });
+        const res = await localFetch(`${getLocalServerUrl()}/api/ping`, { signal: AbortSignal.timeout(8000) });
         if (res.ok) {
           localStorage.setItem('IS_LOCAL_MODE', 'true');
           setIsLocalMode(true);
@@ -729,7 +729,7 @@ export default function App() {
           // 실제로 응답하는지 ping
           try {
             const ping = await fetch(`${serverInfo.url}/api/ping`, {
-              signal: AbortSignal.timeout(3000),
+              signal: AbortSignal.timeout(8000),
               headers: { 'ngrok-skip-browser-warning': 'true' }
             });
             if (ping.ok) {
@@ -1064,12 +1064,12 @@ export default function App() {
 
   const callAI = async (prompt: string): Promise<string> => {
     const localUrl = getLocalServerUrl();
-    if (!localUrl) throw new Error('로컬 서버 URL이 설정되지 않았습니다. 노트북 서버를 실행해 주세요.');
+    if (!localUrl) throw new Error('로컬 서버 URL이 설정되지 않았습니다. 서버를 실행해 주세요.');
     const res = await localFetch(`${localUrl}/api/claude-chat`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt })
     });
-    if (!res.ok) throw new Error(`서버 오류 ${res.status} — 노트북 서버가 켜져 있는지 확인해 주세요.`);
+    if (!res.ok) throw new Error(`서버 오류 ${res.status} — 서버가 켜져 있는지 확인해 주세요.`);
     return (await res.json()).text ?? '';
   };
 
@@ -1105,7 +1105,7 @@ export default function App() {
 수정없으면 [].`;
 
   const startParishAiReview = async () => {
-    if (!isLocalMode) { toast.error('노트북 서버가 연결되어 있지 않습니다.'); return; }
+    if (!isLocalMode) { toast.error('서버가 연결되어 있지 않습니다.'); return; }
 
     const churches = (PARISH_CHURCH_MAP[adminConsoleParish] || []);
     if (churches.length === 0) { toast.warning('교구 교회 목록이 없습니다.'); return; }
@@ -2684,7 +2684,7 @@ ${reportText}`;
           throw new Error("Ollama API failed");
         }
       } else {
-        throw new Error('노트북 서버에 연결되어 있지 않습니다. 서버를 실행해 주세요.');
+        throw new Error('서버에 연결되어 있지 않습니다. 서버를 실행해 주세요.');
       }
 
       const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -2778,7 +2778,7 @@ ${reportText}`;
     for (const url of candidates) {
       try {
         const ping = await fetch(`${url}/api/ping`, {
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(8000),
           headers: { 'ngrok-skip-browser-warning': 'true' }
         });
         if (ping.ok) {
@@ -2799,7 +2799,7 @@ ${reportText}`;
       // 버튼 클릭마다 서버 URL 재확인
       const serverUrl = await refreshServerUrl();
       if (!serverUrl) {
-        toast.error('노트북 서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인해 주세요.');
+        toast.error('서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인해 주세요.');
         setIsCheckingAI(false);
         return;
       }
