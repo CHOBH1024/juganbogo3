@@ -4539,6 +4539,39 @@ const renderPreviewLines = () => {
                       <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, item.id)} />
                       <ImageIcon className="w-3.5 h-3.5" /> 사진 첨부
                     </label>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const clipItems = await navigator.clipboard.read();
+                          for (const ci of clipItems) {
+                            const imgType = ci.types.find(t => t.startsWith('image/'));
+                            if (imgType) {
+                              const blob = await ci.getType(imgType);
+                              const reader = new FileReader();
+                              reader.onload = ev => {
+                                const dataUrl = ev.target?.result as string;
+                                const img = new Image();
+                                img.onload = () => {
+                                  setReportData(d => d.map(it => {
+                                    if (it.id !== item.id) return it;
+                                    const prev = it.images?.length ? it.images : (it.image ? [it.image] : []);
+                                    return { ...it, image: prev[0] || dataUrl, imageWidth: img.width, imageHeight: img.height, images: [...prev, dataUrl] };
+                                  }));
+                                  toast.success('클립보드 사진이 추가되었습니다.');
+                                };
+                                img.src = dataUrl;
+                              };
+                              reader.readAsDataURL(blob);
+                              return;
+                            }
+                          }
+                          toast.warning('클립보드에 이미지가 없습니다.');
+                        } catch { toast.error('Ctrl+V로 붙여넣기 하세요.'); }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors" title="클립보드 사진 붙여넣기"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> 붙여넣기
+                    </button>
                     <button onClick={() => removeItem(item.id)} className="flex items-center gap-1 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs font-medium transition-colors" title="삭제">
                       <X className="w-3.5 h-3.5" /> 삭제
                     </button>
@@ -4562,6 +4595,41 @@ const renderPreviewLines = () => {
                             <Plus className="w-3 h-3" /> 사진 추가
                             <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, item.id, true)} />
                           </label>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const clipItems = await navigator.clipboard.read();
+                                for (const ci of clipItems) {
+                                  const imgType = ci.types.find(t => t.startsWith('image/'));
+                                  if (imgType) {
+                                    const blob = await ci.getType(imgType);
+                                    const reader = new FileReader();
+                                    reader.onload = ev => {
+                                      const dataUrl = ev.target?.result as string;
+                                      const img = new Image();
+                                      img.onload = () => {
+                                        setReportData(d => d.map(it => {
+                                          if (it.id !== item.id) return it;
+                                          const prev = it.images?.length ? it.images : (it.image ? [it.image] : []);
+                                          return { ...it, image: prev[0] || dataUrl, imageWidth: img.width, imageHeight: img.height, images: [...prev, dataUrl] };
+                                        }));
+                                        toast.success('클립보드 사진이 추가되었습니다.');
+                                      };
+                                      img.src = dataUrl;
+                                    };
+                                    reader.readAsDataURL(blob);
+                                    return;
+                                  }
+                                }
+                                toast.warning('클립보드에 이미지가 없습니다. 먼저 사진을 복사하세요.');
+                              } catch {
+                                toast.error('클립보드 접근이 거부되었습니다. Ctrl+V를 사용하세요.');
+                              }
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-[10px] font-bold hover:bg-blue-100 transition-colors"
+                          >
+                            <Copy className="w-3 h-3" /> 붙여넣기
+                          </button>
                         </div>
                         {/* 이미지 그리드 */}
                         <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
