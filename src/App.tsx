@@ -1107,7 +1107,7 @@ export default function App() {
   const startParishAiReview = async () => {
     if (!isLocalMode) { toast.error('노트북 서버가 연결되어 있지 않습니다.'); return; }
 
-    const churches = (PARISH_CHURCH_MAP[adminConsoleParish] || []).slice(1);
+    const churches = (PARISH_CHURCH_MAP[adminConsoleParish] || []);
     if (churches.length === 0) { toast.warning('교구 교회 목록이 없습니다.'); return; }
 
     // 진행 모달 열기
@@ -2803,8 +2803,17 @@ ${reportText}`;
         setIsCheckingAI(false);
         return;
       }
+      // AI 전 클라이언트 사전 교정 (번호 제거 + 레벨 자동 수정)
+      autoFixBeforeAI();
+      // reportData가 업데이트되기 전이므로 최신 상태로 직접 계산
+      const fixedData = reportData.map(item => {
+        const cleaned = stripLeadingNumber(item.text || '');
+        let level = item.level;
+        if (level === 1 && L2_KEYWORDS.test(cleaned)) level = 2;
+        return { ...item, text: cleaned, level };
+      });
       toast.info('🖥️ AI 검토 중... (약 30초)');
-      const cleanData = getCleanData(reportData);
+      const cleanData = getCleanData(fixedData);
       // 이미지·표 항목은 텍스트 검토 불필요 — 건너뜀
       const textItems = cleanData.filter(item => !item.image && !item.tableData && item.text?.trim());
       // 들여쓰기 제거 — AI가 original에 공백 포함해 반환하면 매칭 실패함
@@ -2864,6 +2873,22 @@ ${reportText}
   // 번호 접두사 제거: "1. 텍스트" "1) 텍스트" "① 텍스트" "가. 텍스트" "(1) 텍스트" 등
   const stripLeadingNumber = (text: string) =>
     text.replace(/^(\s*(\d+[.)]\s*|[①-⑮]\s*|[가-하][.)\s]\s*|\([0-9가-하]\)\s*))+/, '').trim();
+
+  // AI 검토 전 클라이언트 사전 교정 — AI가 놓치는 명백한 오류를 먼저 수정
+  const L2_KEYWORDS = /^(일시|장소|참여|참석|인원|대상|목적|추진목적|주요내용|주요프로그램|프로그램|내용|결과|향후계획|비용|예산|담당|주관|주최|준비)[\s:：]/;
+  const autoFixBeforeAI = () => {
+    setReportData(prev => prev.map(item => {
+      let text = item.text || '';
+      let level = item.level;
+      // 1. 번호 접두사 제거 (텍스트에 "1) " "2. " "①" 등이 포함된 경우)
+      const cleaned = stripLeadingNumber(text);
+      // 2. L2 세부정보 키워드가 L1에 있으면 L2로 교정
+      if (level === 1 && L2_KEYWORDS.test(cleaned)) level = 2;
+      if (cleaned === text && level === item.level) return item;
+      return { ...item, text: cleaned, level };
+    }));
+    toast.info('번호 정리 및 레벨 자동 교정 완료');
+  };
 
   const applyAiCorrection = (original: string, corrected: string, newLevel?: number) => {
     const cleanText = stripLeadingNumber(corrected);
