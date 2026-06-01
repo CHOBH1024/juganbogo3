@@ -1416,7 +1416,7 @@ ${reportText}`;
             const wordImgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
             if (wordImgs.length > 0) {
               try {
-                const cols = item.imageColumns || 1;
+                const cols = item.imageColumns || 3;
                 const perWidth = Math.floor(500 / cols);
                 const buffers = await Promise.all(wordImgs.map(async src => {
                   if (src.startsWith("http")) { const r = await fetch(src); return r.arrayBuffer(); }
@@ -1810,9 +1810,9 @@ ${reportText}`;
       if (item.id !== cropItemId) return item;
       if (cropAddMode) {
         const existingImages = item.images?.length ? item.images : (item.image ? [item.image] : []);
-        return { ...item, images: [...existingImages, dataUrl], imageColumns: item.imageColumns || 2 };
+        return { ...item, images: [...existingImages, dataUrl], imageColumns: item.imageColumns || 3 };
       }
-      return { ...item, image: dataUrl, imageWidth: finalWidth, imageHeight: finalHeight, images: [dataUrl] };
+      return { ...item, image: dataUrl, imageWidth: finalWidth, imageHeight: finalHeight, images: [dataUrl], imageColumns: 3 };
     }));
 
     // Upload to local storage or Supabase
@@ -1839,7 +1839,7 @@ ${reportText}`;
               if (item.id !== cropItemId) return item;
               if (cropAddMode) {
                 const prev = item.images?.length ? item.images : (item.image ? [item.image] : []);
-                return { ...item, images: [...prev, uploadData.url], imageColumns: item.imageColumns || 2 };
+                return { ...item, images: [...prev, uploadData.url], imageColumns: item.imageColumns || 3 };
               }
               return { ...item, image: uploadData.url, images: [uploadData.url] };
             }));
@@ -1868,7 +1868,7 @@ ${reportText}`;
             if (item.id !== cropItemId) return item;
             if (cropAddMode) {
               const prev = item.images?.length ? item.images : (item.image ? [item.image] : []);
-              return { ...item, images: [...prev, publicUrl], imageColumns: item.imageColumns || 2 };
+              return { ...item, images: [...prev, publicUrl], imageColumns: item.imageColumns || 3 };
             }
             return { ...item, image: publicUrl, images: [publicUrl] };
           }));
@@ -3184,7 +3184,7 @@ const renderPreviewLines = () => {
           {(() => {
             const imgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
             if (imgs.length === 0) return null;
-            const cols = item.imageColumns || 1;
+            const cols = item.imageColumns || 3;
             const ml = item.level === 0 ? 'ml-0' : item.level === 1 ? 'ml-2' : item.level === 2 ? 'ml-8' : 'ml-12';
             return (
               <div className={`mt-2 ${ml}`}>
@@ -4579,7 +4579,7 @@ const renderPreviewLines = () => {
                   {(() => {
                     const imgs = item.images?.length ? item.images : (item.image ? [item.image] : []);
                     if (imgs.length === 0) return null;
-                    const cols = item.imageColumns || 1;
+                    const cols = item.imageColumns || 3;
                     return (
                       <div className="mt-2" style={{ paddingLeft: `${(item.level - 1) * 20 + 4}px` }}>
                         {/* 열 수 선택 */}
@@ -4591,10 +4591,6 @@ const renderPreviewLines = () => {
                               {n}열
                             </button>
                           ))}
-                          <label className="ml-1 flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded text-[10px] font-bold cursor-pointer hover:bg-emerald-100 transition-colors">
-                            <Plus className="w-3 h-3" /> 사진 추가
-                            <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, item.id, true)} />
-                          </label>
                           <button
                             onClick={async () => {
                               try {
@@ -4611,7 +4607,7 @@ const renderPreviewLines = () => {
                                         setReportData(d => d.map(it => {
                                           if (it.id !== item.id) return it;
                                           const prev = it.images?.length ? it.images : (it.image ? [it.image] : []);
-                                          return { ...it, image: prev[0] || dataUrl, imageWidth: img.width, imageHeight: img.height, images: [...prev, dataUrl] };
+                                          return { ...it, image: prev[0] || dataUrl, imageWidth: img.width, imageHeight: img.height, images: [...prev, dataUrl], imageColumns: it.imageColumns || 3 };
                                         }));
                                         toast.success('클립보드 사진이 추가되었습니다.');
                                       };
@@ -4630,6 +4626,10 @@ const renderPreviewLines = () => {
                           >
                             <Copy className="w-3 h-3" /> 붙여넣기
                           </button>
+                          <label className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded text-[10px] font-bold cursor-pointer hover:bg-emerald-100 transition-colors">
+                            <Plus className="w-3 h-3" /> 사진 추가
+                            <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, item.id, true)} />
+                          </label>
                         </div>
                         {/* 이미지 그리드 */}
                         <div className={`grid gap-1.5`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
